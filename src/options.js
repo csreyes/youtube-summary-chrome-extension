@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const defaultPromptTemplate =
     "Please provide a concise summary of the following YouTube video transcript. Focus on the main points, key insights, and important details. Format the summary in a clear, readable way with paragraphs and bullet points where appropriate.\n\nVideo Title: {{title}}\nChannel: {{channel}}\nTranscript:\n{{transcript}}";
   const defaultApiEndpoint = "https://openrouter.ai/api/v1/chat/completions";
-  const defaultModel = "anthropic/claude-3.5-sonnet";
+  const defaultModel = "anthropic/claude-3.7-sonnet";
   const defaultTemperature = 0.7;
   const defaultEnableChat = true;
 
@@ -14,7 +14,6 @@ document.addEventListener("DOMContentLoaded", function () {
   const promptTemplateInput = document.getElementById("promptTemplate");
   const saveButton = document.getElementById("saveBtn");
   const statusMessage = document.getElementById("statusMessage");
-  const customModelInput = document.getElementById("custom-model");
   const modelRadios = document.querySelectorAll('input[name="model"]');
   const temperatureSlider = document.getElementById("temperature");
   const temperatureValueDisplay = document.getElementById("tempValue");
@@ -45,22 +44,11 @@ document.addEventListener("DOMContentLoaded", function () {
         enableChatToggle.checked = items.enableChat;
 
         // Set the selected model radio
-        let modelFound = false;
         modelRadios.forEach((radio) => {
           if (radio.value === items.model) {
             radio.checked = true;
-            modelFound = true;
           }
         });
-
-        // If model is not one of the predefined ones, select "other" and fill in custom field
-        if (!modelFound) {
-          document.getElementById("model-other").checked = true;
-          customModelInput.value = items.model;
-        }
-
-        // Enable/disable custom model input based on selection
-        toggleCustomModelInput();
       }
     );
   }
@@ -75,11 +63,6 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
 
-    // If "other" is selected, use the custom model input value
-    if (selectedModel === "other") {
-      selectedModel = customModelInput.value.trim();
-    }
-
     // Validate inputs
     if (!apiKeyInput.value.trim()) {
       showMessage("Please enter an API key.", "error");
@@ -92,7 +75,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     if (selectedModel === "") {
-      showMessage("Please select or enter a model.", "error");
+      showMessage("Please select a model.", "error");
       return;
     }
 
@@ -124,14 +107,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }, 3000);
   }
 
-  // Toggle custom model input based on radio selection
-  function toggleCustomModelInput() {
-    customModelInput.disabled = !document.getElementById("model-other").checked;
-    if (customModelInput.disabled) {
-      customModelInput.value = "";
-    }
-  }
-
   // Restore default prompt template
   function restoreDefaultPrompt() {
     promptTemplateInput.value = defaultPromptTemplate;
@@ -139,11 +114,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Event listeners
   saveButton.addEventListener("click", saveOptions);
-
-  // Update custom model input state when radio selection changes
-  modelRadios.forEach((radio) => {
-    radio.addEventListener("change", toggleCustomModelInput);
-  });
 
   // Add "Reset to Default" for the prompt template
   const resetLink = document.createElement("a");

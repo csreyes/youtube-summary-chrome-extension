@@ -277,25 +277,28 @@
     </div>
     
     <div class="form-group">
-      <label>Select Model:</label>
+      <label>Select Custom Model:</label>
       <div class="model-option">
-        <input type="radio" id="model-claude-3-5" name="model" value="anthropic/claude-3.5-sonnet">
-        <label for="model-claude-3-5">Claude 3.5 Sonnet (Recommended)</label>
-      </div>
-      <div class="model-option">
-        <input type="radio" id="model-claude-3-7" name="model" value="anthropic/claude-3.7-sonnet">
-        <label for="model-claude-3-7">Claude 3.7 Sonnet (Best)</label>
-      </div>
-      <div class="model-option">
-        <input type="radio" id="model-gemini" name="model" value="google/gemini-2.0-flash-001">
+        <input type="radio" id="model-gemini" name="model" value="google/gemini-2.0-flash-001" checked>
         <label for="model-gemini">Google Gemini 2.0 Flash</label>
       </div>
       <div class="model-option">
-        <input type="radio" id="model-other" name="model" value="other">
-        <label for="model-other">Other:</label>
-        <input type="text" id="custom-model" placeholder="Enter model name" style="width: 200px; margin-left: 8px;">
+        <input type="radio" id="model-deepseek" name="model" value="deepseek/deepseek-r1:free">
+        <label for="model-deepseek">DeepSeek R1 (Free)</label>
       </div>
-      <p class="help-text">See the <a href="https://openrouter.ai/docs" target="_blank">OpenRouter documentation</a> for available models.</p>
+      <div class="model-option">
+        <input type="radio" id="model-claude-3-7" name="model" value="anthropic/claude-3.7-sonnet">
+        <label for="model-claude-3-7">Claude 3.7 Sonnet</label>
+      </div>
+      <div class="api-info">
+        <p><strong>Note:</strong> The extension is configured to use these models by default:</p>
+        <ul>
+          <li><strong>Initial Summary:</strong> Claude 3.7 Sonnet (for highest quality summaries)</li>
+          <li><strong>Chat Messages:</strong> Gemini 2.0 Flash (for faster responses)</li>
+        </ul>
+        <p>The model selected above will only be used if the extension needs to fall back to a custom model.</p>
+      </div>
+      <p class="help-text">See the <a href="https://openrouter.ai/docs" target="_blank">OpenRouter documentation</a> for more information about these models.</p>
     </div>
   </div>
   

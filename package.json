@@ -28,5 +28,8 @@
     "rimraf": "^5.0.1",
     "webpack": "^5.88.0",
     "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "react-markdown": "^10.1.0"
   }
 }

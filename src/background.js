@@ -7,16 +7,23 @@ console.log("[YouTube AI Summarizer] Background service worker started: test");
 const DEFAULT_CONFIG = {
   apiKey: process.env.OPENROUTER_API_KEY || "", // Use environment variable as default
   apiEndpoint: "https://openrouter.ai/api/v1/chat/completions",
-  model: "anthropic/claude-3.5-sonnet",
+  model: "anthropic/claude-3.7-sonnet", // Default for options page
   promptTemplate:
     "Please provide a concise summary of the following YouTube video transcript. Focus on the main points, key insights, and important details.\n\nVideo Title: {{title}}\nChannel: {{channel}}\nTranscript:\n{{transcript}}",
 };
+
+// Model constants
+const SUMMARY_MODEL = "anthropic/claude-3.7-sonnet"; // Used for initial summaries
+const CHAT_MODEL = "google/gemini-2.0-flash-001"; // Used for follow-up chat messages
 
 // Track tabs with active content scripts
 const activeContentScriptTabs = new Set();
 
 // Track active streams to enable cancellation
 const activeStreams = new Map();
+
+// Store transcripts for reference in chat
+const videoTranscripts = new Map();
 
 // For testing - provides a sample summary if no API key is set
 function getTestSummary(videoTitle, channelName, transcriptLength) {
@@ -64,6 +71,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "SUMMARIZE") {
     console.log("[YouTube AI Summarizer] Handling summarize request");
+    // Store the transcript for later chat reference
+    if (sender.tab && message.payload.text) {
+      videoTranscripts.set(sender.tab.id, message.payload.text);
+      console.log(
+        `[YouTube AI Summarizer] Stored transcript for tab ${sender.tab.id}, length: ${message.payload.text.length}`
+      );
+    }
+
     // Don't use sendResponse here since we're handling things asynchronously
     handleSummarizeRequest(message.payload, sender.tab.id).catch((error) =>
       console.error(
@@ -170,7 +185,7 @@ async function handleChatMessage(payload, tabId) {
 
   try {
     // Get the API key and endpoint from storage
-    const { apiKey, apiEndpoint, model, temperature } = await getConfig();
+    const { apiKey, apiEndpoint, temperature } = await getConfig();
 
     if (!apiKey) {
       console.error("[Background] API key not configured");
@@ -183,6 +198,9 @@ async function handleChatMessage(payload, tabId) {
       return;
     }
 
+    // Get the full transcript if available
+    const fullTranscript = videoTranscripts.get(tabId) || "";
+
     // Create transcriptContext from the conversation history
     let transcriptContext = "";
     if (payload.history && payload.history.length > 0) {
@@ -191,8 +209,7 @@ async function handleChatMessage(payload, tabId) {
         (msg) => msg.role === "assistant"
       );
       if (summaryMessage) {
-        // Extract the first 500 characters to provide context without making the prompt too long
-        transcriptContext = summaryMessage.content.substring(0, 500) + "...";
+        transcriptContext = summaryMessage.content;
       }
     }
 
@@ -209,14 +226,27 @@ async function handleChatMessage(payload, tabId) {
       {
         role: "system",
         content: `You are a helpful assistant that answers questions about YouTube videos. 
-You have access to the transcript summary of the video "${payload.metadata?.title}" by ${payload.metadata?.channel}.
+You have access to the transcript summary and full transcript of the video "${
+          payload.metadata?.title
+        }" by ${payload.metadata?.channel}.
 
-Here is a brief excerpt from the transcript summary to help you understand what the video is about:
+Here is the transcript summary to help you understand what the video is about:
 ${transcriptContext}
 
-Be helpful, accurate, and conversational. If asked about timestamps or specific parts of the video, try to include any relevant timestamps from the summary in your response. The timestamps in the transcript are in the format MM:SS or HH:MM:SS and can be important for reference.
+${
+  fullTranscript.length > 0
+    ? `\nHere is the full transcript of the video for detailed reference:\n${fullTranscript.substring(
+        0,
+        14000
+      )}`
+    : ""
+}
 
-If you don't know the answer to a question based on the transcript or summary provided, be honest and say you don't have that information rather than making up an answer.`,
+Be helpful, accurate, and conversational. If asked about timestamps or specific parts of the video, try to include any relevant timestamps from the transcript in your response. The timestamps in the transcript are in the format MM:SS or HH:MM:SS and can be important for reference.
+
+If you don't know the answer to a question based on the transcript or summary provided, be honest and say you don't have that information rather than making up an answer.
+
+Format your responses using Markdown for better readability. Use headings, bullet points, bold, and other Markdown formatting when appropriate.`,
       },
     ];
 
@@ -232,7 +262,9 @@ If you don't know the answer to a question based on the transcript or summary pr
     activeStreams.set(tabStreamKey, controller);
 
     // Make streaming request to OpenRouter
-    console.log("[Background] Making streaming request to OpenRouter API");
+    console.log(
+      "[Background] Making streaming chat request to OpenRouter API using Gemini 2.0"
+    );
     const response = await fetch(apiEndpoint, {
       method: "POST",
       headers: {
@@ -242,7 +274,7 @@ If you don't know the answer to a question based on the transcript or summary pr
         "X-Title": "YouTube AI Summarizer", // Required by OpenRouter
       },
       body: JSON.stringify({
-        model: model || "anthropic/claude-3.5-sonnet",
+        model: CHAT_MODEL, // Always use Gemini for chat
         messages: messages,
         temperature: temperature || 0.7,
         stream: true, // Enable streaming
@@ -407,8 +439,7 @@ async function handleSummarizeRequest(payload, tabId) {
     }
 
     // Get the API key and endpoint from storage
-    const { apiKey, apiEndpoint, model, maxTokens, temperature } =
-      await getConfig();
+    const { apiKey, apiEndpoint, temperature } = await getConfig();
 
     if (!apiKey) {
       console.error("[Background] API key not configured");
@@ -427,7 +458,7 @@ async function handleSummarizeRequest(payload, tabId) {
       action: "display_summary",
       type: "SUMMARY_LOADING",
       responseId: summaryResponseId,
-      text: "Generating summary...",
+      text: "Generating summary with Claude 3.7...",
     });
 
     // Create controller for stream cancellation
@@ -440,7 +471,7 @@ async function handleSummarizeRequest(payload, tabId) {
 
     // Send the summarization request to the OpenRouter API
     console.log(
-      "[Background] Making streaming summary request to OpenRouter API"
+      "[Background] Making streaming summary request to OpenRouter API using Claude 3.7"
     );
     const response = await fetch(apiEndpoint, {
       method: "POST",
@@ -451,12 +482,12 @@ async function handleSummarizeRequest(payload, tabId) {
         "X-Title": "YouTube AI Summarizer", // Required by OpenRouter
       },
       body: JSON.stringify({
-        model: model || "anthropic/claude-3.5-sonnet",
+        model: SUMMARY_MODEL, // Always use Claude 3.7 for initial summaries
         messages: [
           {
             role: "system",
             content:
-              "You are a helpful assistant that creates structured summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Be thorough in your explanations and don't be afraid to go into detail. When specific tactics, strategies or technical concepts are mentioned, explain them clearly so they're understandable.",
+              "You are a helpful assistant that creates structured summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Be thorough in your explanations and don't be afraid to go into detail. When specific tactics, strategies or technical concepts are mentioned, explain them clearly so they're understandable. Format your response in Markdown for better readability.",
           },
           {
             role: "user",
@@ -475,7 +506,12 @@ Here's the transcript:
 
 ${payload.text}
 
-Format your response in a clear, readable way with sections, bullet points, and proper spacing for readability.`,
+Format your response in clear Markdown with:
+- Use # for main headings
+- Use ## for subheadings
+- Use bullet points for lists
+- Use **bold** for emphasis
+- Maintain proper spacing between sections for readability`,
           },
         ],
         temperature: temperature || 0.3, // Use a lower temperature for more focused summaries
@@ -617,7 +653,7 @@ async function getUserConfig() {
       {
         apiKey: process.env.OPENROUTER_API_KEY || "", // Use environment variable as default
         apiEndpoint: "https://openrouter.ai/api/v1/chat/completions",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "google/gemini-2.0-flash-001",
         promptTemplate:
           "Please provide a concise summary of the following YouTube video transcript. Focus on the main points, key insights, and important details.\n\nVideo Title: {{title}}\nChannel: {{channel}}\nTranscript:\n{{transcript}}",
       },
@@ -645,7 +681,7 @@ function createPromptFromTemplate(template, data) {
   return prompt;
 }
 
-// Call the LLM API with the prompt
+// Call the LLM API with the prompt (used for non-streaming API calls)
 async function callLlmApi(prompt, config) {
   try {
     console.log(
@@ -654,12 +690,12 @@ async function callLlmApi(prompt, config) {
     );
     // OpenRouter request format
     const requestData = {
-      model: config.model || "anthropic/claude-3.5-sonnet",
+      model: SUMMARY_MODEL, // Use Claude 3.7 for fallback non-streaming summaries
       messages: [
         {
           role: "system",
           content:
-            "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
+            "You are a helpful assistant that creates structured summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Format your response using Markdown to ensure excellent readability with headings, bullet points, and proper formatting.",
         },
         { role: "user", content: prompt },
       ],
@@ -761,7 +797,7 @@ function getConfig() {
       {
         apiKey: process.env.OPENROUTER_API_KEY || "", // Use environment variable as default
         apiEndpoint: "https://openrouter.ai/api/v1/chat/completions",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "google/gemini-2.0-flash-001",
         maxTokens: 1000,
         temperature: 0.3,
       },
