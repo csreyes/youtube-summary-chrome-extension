@@ -737,12 +737,14 @@ function displaySummaryModal(summary) {
               text = segmentText.replace(timestamp, "").trim();
             }
 
-            console.log(
-              `[YouTube AI Summarizer] Segment ${i}: timestamp="${timestamp}", text="${text?.substring(
-                0,
-                30
-              )}..."`
-            );
+            if (i < 5) {
+              console.log(
+                `[YouTube AI Summarizer] Segment ${i}: timestamp="${timestamp}", text="${text?.substring(
+                  0,
+                  30
+                )}..."`
+              );
+            }
 
             if (text) {
               transcriptText += `${timestamp ? timestamp + ": " : ""}${text}\n`;
@@ -756,13 +758,9 @@ function displaySummaryModal(summary) {
             transcriptText.substring(0, 100)
           );
 
-          // Enhanced logging - log the full transcript for debugging
-          console.log(
-            "[YouTube AI Summarizer] Full transcript (before sending to LLM):",
-            transcriptText
-          );
-
-          return transcriptText.trim();
+          // Clean up the transcript to remove duplicates
+          transcriptText = cleanupTranscript(transcriptText);
+          return transcriptText;
         }
       } else {
         console.log(
@@ -800,12 +798,15 @@ function displaySummaryModal(summary) {
           }
 
           const text = segment.textContent?.trim();
-          console.log(
-            `[YouTube AI Summarizer] Formatted string segment ${i}: timestamp="${timestamp}", text="${text?.substring(
-              0,
-              30
-            )}..."`
-          );
+
+          if (i < 5) {
+            console.log(
+              `[YouTube AI Summarizer] Formatted string segment ${i}: timestamp="${timestamp}", text="${text?.substring(
+                0,
+                30
+              )}..."`
+            );
+          }
 
           if (text) {
             transcriptText += `${timestamp ? timestamp + ": " : ""}${text}\n`;
@@ -817,7 +818,10 @@ function displaySummaryModal(summary) {
             "[YouTube AI Summarizer] Extracted transcript using formatted-string selector. First 100 chars:",
             transcriptText.substring(0, 100)
           );
-          return transcriptText.trim();
+
+          // Clean up the transcript to remove duplicates
+          transcriptText = cleanupTranscript(transcriptText);
+          return transcriptText;
         }
       }
 
@@ -863,7 +867,10 @@ function displaySummaryModal(summary) {
               "[YouTube AI Summarizer] Extracted transcript from segment containers. Length:",
               transcriptText.length
             );
-            return transcriptText.trim();
+
+            // Clean up the transcript to remove duplicates
+            transcriptText = cleanupTranscript(transcriptText);
+            return transcriptText;
           }
         }
 
@@ -880,30 +887,187 @@ function displaySummaryModal(summary) {
             "[YouTube AI Summarizer] Extracted raw text from transcript panel. Length:",
             cleanedText.length
           );
-          return cleanedText;
+
+          // Clean up the transcript to remove duplicates
+          const finalText = cleanupTranscript(cleanedText);
+          return finalText;
         }
       }
 
-      // Additional logging for all other transcript extraction methods
-      if (transcriptText && transcriptText.length > 100) {
+      // Fallback method: try to parse segments directly from any available elements
+      console.log("[YouTube AI Summarizer] Trying native transcript approach");
+      const transcriptElement = document.querySelector(
+        "#transcript, [data-panel-identifier='transcript'], ytd-transcript-body-renderer, [target-id*='transcript']"
+      );
+
+      if (transcriptElement) {
         console.log(
-          "[YouTube AI Summarizer] Full transcript (before sending to LLM):",
-          transcriptText
+          "[YouTube AI Summarizer] Found transcript panel:",
+          transcriptElement.tagName
         );
+
+        // Try to get all possible transcript segments
+        const allPossibleSegments = transcriptElement.querySelectorAll("*");
+        console.log(
+          "[YouTube AI Summarizer] Found",
+          allPossibleSegments.length,
+          "potential elements in transcript panel"
+        );
+
+        // Try to identify patterns in the content
+        let segmentTimestamps = [];
+        let segmentTexts = [];
+
+        allPossibleSegments.forEach((el) => {
+          const text = el.textContent?.trim();
+          if (text && text.length > 0) {
+            // Check if this looks like a timestamp (e.g., "0:00", "1:23", etc.)
+            if (/^(\d+:)?\d+:\d+$/.test(text)) {
+              segmentTimestamps.push({ el, text });
+            }
+            // Check if this looks like transcript text (more than a few words and not just a timestamp)
+            else if (text.split(" ").length > 3 && !/^\d+:\d+$/.test(text)) {
+              segmentTexts.push({ el, text });
+            }
+          }
+        });
+
+        console.log(
+          "[YouTube AI Summarizer] Found",
+          segmentTimestamps.length,
+          "potential timestamps and",
+          segmentTexts.length,
+          "potential text segments"
+        );
+
+        // Now try to build transcript by pairing timestamps with text
+        if (segmentTimestamps.length > 0 && segmentTexts.length > 0) {
+          // If counts match, assume they're in order
+          if (segmentTimestamps.length === segmentTexts.length) {
+            for (let i = 0; i < segmentTimestamps.length; i++) {
+              transcriptText += `${segmentTimestamps[i].text}: ${segmentTexts[i].text}\n`;
+            }
+          } else {
+            // Otherwise just use the text segments
+            segmentTexts.forEach((item) => {
+              transcriptText += item.text + "\n";
+            });
+          }
+
+          if (transcriptText.length > 100) {
+            console.log(
+              "[YouTube AI Summarizer] Built transcript from elements. Length:",
+              transcriptText.length
+            );
+
+            // Clean up the transcript to remove duplicates
+            transcriptText = cleanupTranscript(transcriptText);
+            return transcriptText;
+          }
+        }
       }
 
       if (transcriptText.length > 0) {
-        return transcriptText.trim();
+        // Clean up the transcript to remove duplicates
+        transcriptText = cleanupTranscript(transcriptText);
+        return transcriptText;
       }
 
       console.error(
-        "[YouTube AI Summarizer] Failed to extract transcript text"
+        "[YouTube AI Summarizer] All transcript extraction methods failed"
       );
-      throw new Error("Could not extract transcript");
+      throw new Error("Could not extract transcript using any method");
     } catch (e) {
       console.error("[YouTube AI Summarizer] Error extracting transcript:", e);
       throw e;
     }
+  }
+
+  // Function to clean up transcript and remove duplicated content
+  function cleanupTranscript(rawTranscript) {
+    console.log(
+      "[YouTube AI Summarizer] Cleaning up transcript to remove duplicates"
+    );
+
+    if (!rawTranscript) return "";
+
+    // Split into lines
+    const lines = rawTranscript.split("\n");
+    console.log(
+      "[YouTube AI Summarizer] Original transcript has",
+      lines.length,
+      "lines"
+    );
+
+    // Create a map to track unique entries by their content
+    const uniqueLines = new Map();
+    const processed = [];
+
+    // Process each line to extract timestamp and content and detect duplicates
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      // Parse timestamp and content
+      const timestampMatch = line.match(/^(\d+:\d+:?\d*):?\s*(.*)/);
+
+      if (timestampMatch) {
+        const timestamp = timestampMatch[1];
+        const content = timestampMatch[2].trim();
+
+        // Skip empty content
+        if (!content) continue;
+
+        // Use content as key to detect duplicates
+        const key = content.toLowerCase();
+
+        // Only add if we haven't seen this content before, or if it has a timestamp and previous doesn't
+        if (!uniqueLines.has(key)) {
+          uniqueLines.set(key, { timestamp, content });
+          processed.push(`${timestamp}: ${content}`);
+        }
+      } else if (line.trim()) {
+        // This is a line without timestamp format
+        // Only add non-empty lines without timestamps if they don't match a previous content
+        const key = line.trim().toLowerCase();
+
+        if (!uniqueLines.has(key)) {
+          uniqueLines.set(key, { timestamp: "", content: line.trim() });
+          processed.push(line.trim());
+        }
+      }
+    }
+
+    // Join the deduplicated lines
+    const cleanedTranscript = processed.join("\n");
+
+    console.log(
+      "[YouTube AI Summarizer] Cleaned transcript has",
+      processed.length,
+      "lines"
+    );
+
+    // Log the first and last parts of the cleaned transcript
+    if (cleanedTranscript.length > 0) {
+      console.log(
+        "[YouTube AI Summarizer] Cleaned transcript beginning (first 200 chars):",
+        cleanedTranscript.substring(0, 200)
+      );
+
+      if (cleanedTranscript.length > 400) {
+        console.log(
+          "[YouTube AI Summarizer] Cleaned transcript end (last 200 chars):",
+          cleanedTranscript.substring(cleanedTranscript.length - 200)
+        );
+      }
+
+      // Log the full cleaned transcript for debugging
+      console.log(
+        "[YouTube AI Summarizer] Full cleaned transcript for LLM:",
+        cleanedTranscript
+      );
+    }
+
+    return cleanedTranscript;
   }
 
   // Function to ensure transcript is visible before extracting
@@ -1070,11 +1234,7 @@ function displaySummaryModal(summary) {
           transcriptText.length
         );
 
-        // Log the first 500 characters of transcript for debugging
-        console.log(
-          "[YouTube AI Summarizer] Transcript beginning (first 500 chars):",
-          transcriptText.substring(0, 500)
-        );
+        // No need to log the beginning here since we already do comprehensive logging in cleanupTranscript
       } catch (extractError) {
         console.error(
           "[YouTube AI Summarizer] Transcript extraction error:",
