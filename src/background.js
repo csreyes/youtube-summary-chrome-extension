@@ -419,7 +419,29 @@ async function handleSummarizeRequest(payload, tabId) {
       return;
     }
 
+    // Create summary response ID
+    const summaryResponseId = "summary-" + Date.now();
+
+    // Tell content script we're starting a streaming summary
+    await safeSendTabMessage(tabId, {
+      action: "display_summary",
+      type: "SUMMARY_LOADING",
+      responseId: summaryResponseId,
+      text: "Generating summary...",
+    });
+
+    // Create controller for stream cancellation
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // Store the controller for potential cancellation
+    const tabStreamKey = `${tabId}-${summaryResponseId}`;
+    activeStreams.set(tabStreamKey, controller);
+
     // Send the summarization request to the OpenRouter API
+    console.log(
+      "[Background] Making streaming summary request to OpenRouter API"
+    );
     const response = await fetch(apiEndpoint, {
       method: "POST",
       headers: {
@@ -434,123 +456,154 @@ async function handleSummarizeRequest(payload, tabId) {
           {
             role: "system",
             content:
-              "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Be thorough in your explanations and don't be afraid to go into detail. When specific tactics, strategies or technical concepts are mentioned, explain them clearly so they're understandable. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
+              "You are a helpful assistant that creates structured summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Be thorough in your explanations and don't be afraid to go into detail. When specific tactics, strategies or technical concepts are mentioned, explain them clearly so they're understandable.",
           },
           {
             role: "user",
-            content: `Please analyze this YouTube video transcript and create a detailed structured JSON summary with the following format:
+            content: `Please analyze this YouTube video transcript and create a detailed summary that covers:
 
-{
-  "overview": "A thorough 3-4 sentence overview of what the video is about",
-  "chapters": [
-    {
-      "title": "Chapter/Section Title",
-      "timestamp": "MM:SS or HH:MM:SS format if available", 
-      "points": [
-        {"text": "First key point in this section, explained in detail. If tactics or specific methods are mentioned, explain clearly how they work", "timestamp": "MM:SS if available"},
-        {"text": "Second key point in this section with thorough explanation of any technical concepts or strategies", "timestamp": "MM:SS if available"}
-      ]
-    }
-  ],
-  "keyTakeaways": [
-    {"text": "First main takeaway from the video with practical explanation if it references specific tactics or methods", "timestamp": "MM:SS if available"},
-    {"text": "Second main takeaway from the video with clear explanation of any technical terminology", "timestamp": "MM:SS if available"}
-  ]
-}
+1. A thorough overview of what the video is about
+2. Key sections/chapters with their main points
+3. Important timestamps and what happens at those points
+4. Main takeaways from the video
 
-Analyze the transcript carefully to identify chapter/section breaks, and include timestamps whenever possible. If a timestamp isn't mentioned for a specific point, you can omit the timestamp field for that point.
+Include timestamps whenever possible (in MM:SS or HH:MM:SS format). If a timestamp isn't mentioned for a specific point, that's fine.
 
-Be thorough and detailed in your explanations. When the video mentions specific tactics or methods (like "reverse demos" or technical approaches), don't just name them - explain how they work and why they're important. Provide enough explanation that a reader could understand and potentially implement the approach.
+Be thorough and detailed in your explanations. When the video mentions specific tactics or methods, don't just name them - explain how they work and why they're important.
 
 Here's the transcript:
 
 ${payload.text}
 
-Return ONLY valid JSON without any surrounding text, markdown formatting, or code blocks. Your response must be parseable directly with JSON.parse().`,
+Format your response in a clear, readable way with sections, bullet points, and proper spacing for readability.`,
           },
         ],
-        temperature: 0.3, // Use a lower temperature for more focused summaries
-        stream: false, // Disable streaming to ensure we get a complete response
+        temperature: temperature || 0.3, // Use a lower temperature for more focused summaries
+        stream: true, // Enable streaming for summary
       }),
+      signal: signal, // For cancellation
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(
-        "[Background] API request failed:",
-        response.status,
-        errorData
-      );
-      await notifyError(tabId, `API request failed: ${response.statusText}`);
-      return;
-    }
-
-    const data = await response.json();
-    console.log("[Background] API response:", data); // Log the full response for debugging
-
-    // Check if the response was blocked by content filter
-    if (data.choices[0]?.finish_reason === "content_filter") {
-      console.error("[Background] Content filter triggered in OpenAI API");
-      await notifyError(
-        tabId,
-        "Unable to generate summary due to content filter. The video may contain sensitive content."
-      );
-      return;
-    }
-
-    // Extract summary from the OpenRouter response
-    const rawSummary = data.choices[0]?.message?.content;
-
-    // More robust validation
-    if (!rawSummary || rawSummary.length < 20) {
-      console.error("[Background] Invalid or incomplete summary:", rawSummary);
-      await notifyError(
-        tabId,
-        "Unable to generate a meaningful summary. The content may have been too complex or inappropriate."
-      );
-      return;
-    }
-
-    console.log(
-      `[Background] Generated summary (${rawSummary.length} chars) for tab ${tabId}`
-    );
-
-    // Try to parse the JSON response
-    let summary;
-    try {
-      // Try to clean and parse the JSON
-      let jsonContent = rawSummary.trim();
-
-      // Remove any markdown code blocks if present
-      const jsonMatch = jsonContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      if (jsonMatch && jsonMatch[1]) {
-        jsonContent = jsonMatch[1].trim();
+      let errorMsg = `API request failed: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMsg += ` - ${
+          errorData.error?.message || JSON.stringify(errorData)
+        }`;
+      } catch (e) {
+        // Ignore JSON parsing errors
       }
 
-      // Parse the JSON
-      const jsonData = JSON.parse(jsonContent);
-
-      // Send as a structured summary object
-      summary = {
-        type: "json_summary",
-        data: jsonData,
-      };
-
-      console.log("[Background] Successfully parsed JSON summary");
-    } catch (jsonError) {
-      console.error("[Background] Failed to parse JSON summary:", jsonError);
-      // Fall back to plain text if JSON parsing fails
-      summary = {
-        type: "text_summary",
-        text: rawSummary,
-      };
+      console.error("[Background] API request failed:", errorMsg);
+      await notifyError(tabId, errorMsg);
+      return;
     }
 
-    // Send the summary back to the content script
-    chrome.tabs.sendMessage(tabId, {
-      action: "display_summary",
-      summary: summary,
-    });
+    // Process the stream
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let fullResponse = "";
+
+    console.log("[Background] Processing streaming summary response");
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log("[Background] Stream complete");
+          break;
+        }
+
+        // Decode the chunk
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+
+        // Process complete lines from buffer
+        let lines = buffer.split("\n");
+        buffer = lines.pop(); // Keep the last incomplete line in the buffer
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || trimmedLine === "") continue;
+
+          if (trimmedLine.startsWith("data: ")) {
+            const data = trimmedLine.slice(6);
+
+            // Check for end of stream
+            if (data === "[DONE]") {
+              console.log("[Background] Stream end marker received");
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices[0]?.delta?.content;
+
+              if (content) {
+                // Send the content chunk to the content script
+                await safeSendTabMessage(tabId, {
+                  action: "display_summary",
+                  type: "SUMMARY_CHUNK",
+                  responseId: summaryResponseId,
+                  text: content,
+                  isAppend: true,
+                });
+
+                // Add to full response
+                fullResponse += content;
+              }
+            } catch (e) {
+              console.log(
+                "[Background] Error parsing JSON from stream:",
+                e.message
+              );
+              // Skip any invalid JSON - could be comment lines from SSE
+            }
+          }
+        }
+      }
+
+      // Send the full response as a final message
+      if (fullResponse.length > 0) {
+        console.log(
+          "[Background] Summary stream complete, sending full summary of length:",
+          fullResponse.length
+        );
+
+        // Send the complete summary
+        chrome.tabs.sendMessage(tabId, {
+          action: "display_summary",
+          type: "SUMMARY_RESULT",
+          summary: fullResponse,
+        });
+      } else {
+        console.error("[Background] Empty summary generated");
+        await notifyError(
+          tabId,
+          "Failed to generate summary: Empty response received"
+        );
+      }
+    } catch (error) {
+      // Check if this was an abort error from cancellation
+      if (error.name === "AbortError") {
+        console.log("[Background] Summary stream was cancelled");
+        await notifyError(tabId, "Summary generation cancelled");
+      } else {
+        // Some other error occurred during streaming
+        console.error("[Background] Error during summary streaming:", error);
+        await notifyError(
+          tabId,
+          `Error during summary streaming: ${error.message}`
+        );
+      }
+    } finally {
+      // Clean up the stream reference
+      if (activeStreams.has(tabStreamKey)) {
+        activeStreams.delete(tabStreamKey);
+      }
+    }
   } catch (error) {
     console.error("[Background] Error during summarization:", error);
     await notifyError(tabId, `Error: ${error.message}`);

@@ -23,6 +23,27 @@ function isVideoPage() {
   return isVideo;
 }
 
+// Function to extract video metadata - moved outside IIFE for global access
+function getVideoMetadata() {
+  const title =
+    document
+      .querySelector("h1.ytd-video-primary-info-renderer")
+      ?.textContent?.trim() ||
+    document.querySelector("h1.title")?.textContent?.trim() ||
+    document.title;
+
+  const channel =
+    document.querySelector("#owner-name a")?.textContent?.trim() ||
+    document.querySelector(".ytd-channel-name")?.textContent?.trim() ||
+    "Unknown channel";
+
+  return {
+    title: title,
+    url: window.location.href,
+    channel: channel,
+  };
+}
+
 // Function to extract summary content from different message formats
 function extractSummaryContent(message) {
   // Check if summary is directly available
@@ -82,7 +103,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     message.action === "display_summary"
   ) {
     try {
-      // Check if this is a streaming response
+      // Check if this is a streaming response for chat
       if (
         message.type === "STREAM_CHUNK" ||
         message.type === "STREAM_COMPLETE" ||
@@ -119,6 +140,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             " [Message generation stopped]",
             true
           );
+          return false;
+        }
+      }
+
+      // Check if this is a streaming response for summary
+      if (
+        message.type === "SUMMARY_LOADING" ||
+        message.type === "SUMMARY_CHUNK"
+      ) {
+        console.log(
+          `[YouTube AI Summarizer] Received summary ${message.type} for response ${message.responseId}`
+        );
+
+        // Handle summary loading start
+        if (message.type === "SUMMARY_LOADING") {
+          // Show a placeholder while loading
+          if (!document.getElementById("ai-summary-streaming-container")) {
+            const summaryHTML = `
+              <div id="ai-summary-streaming-container" class="ai-summary-streaming">
+                <div class="ai-summary-content">
+                  <h2>Generating Summary...</h2>
+                  <div id="${message.responseId}" class="streaming-content"></div>
+                </div>
+              </div>
+            `;
+            displaySummaryModal(summaryHTML, true);
+          }
+          return false;
+        }
+
+        // Handle summary chunk
+        if (message.type === "SUMMARY_CHUNK") {
+          // Update the streaming content
+          const summaryElement = document.getElementById(message.responseId);
+          if (summaryElement) {
+            if (message.isAppend && summaryElement.innerHTML) {
+              summaryElement.innerHTML += processTimestampsInText(message.text);
+            } else {
+              summaryElement.innerHTML = processTimestampsInText(message.text);
+            }
+
+            // Scroll to ensure visible
+            const contentWrapper = document.querySelector(
+              ".ai-summary-content"
+            );
+            if (contentWrapper) {
+              contentWrapper.scrollTop = contentWrapper.scrollHeight;
+            }
+
+            // Re-attach timestamp handlers
+            attachTimestampClickHandlers();
+          }
           return false;
         }
       }
@@ -322,11 +395,23 @@ function showLoadingIndicator() {
 
 // Hide loading indicator
 function hideLoadingIndicator() {
-  console.log("[YouTube AI Summarizer] Hiding loading indicator");
-  const loadingModal = document.getElementById("ai-summary-modal-container");
-  if (loadingModal) {
-    document.body.removeChild(loadingModal);
+  const loadingIndicator = document.querySelector(".ai-summary-loading");
+  if (loadingIndicator) {
+    loadingIndicator.remove();
   }
+}
+
+// Helper function to show errors in the modal
+function showError(errorMessage) {
+  console.error("[YouTube AI Summarizer] Error:", errorMessage);
+  hideLoadingIndicator();
+  displaySummaryModal(`
+    <div class="ai-summary-error">
+      <p>${errorMessage}</p>
+      <p>Please try again or check the extension options.</p>
+    </div>
+  `);
+  isSummaryInProgress = false;
 }
 
 // Function to safely send messages that might fail
@@ -366,14 +451,18 @@ safeSendMessage({
 let handleSummarizeClick;
 
 // Function to display the summary modal (outside IIFE for immediate availability)
-function displaySummaryModal(summary) {
+function displaySummaryModal(summary, isStreaming = false) {
   console.log(
     "[YouTube AI Summarizer] Displaying summary modal, content length:",
-    summary?.length || (summary?.data ? JSON.stringify(summary.data).length : 0)
+    typeof summary === "string"
+      ? summary.length
+      : summary?.data
+      ? JSON.stringify(summary.data).length
+      : "unknown"
   );
 
   // Log additional details about the summary for debugging
-  if (summary) {
+  if (summary && !isStreaming) {
     console.log(
       "[YouTube AI Summarizer] Summary type:",
       typeof summary,
@@ -410,7 +499,7 @@ function displaySummaryModal(summary) {
 
   // Store the conversation history
   // Initialize conversation history if it doesn't exist yet
-  if (!window.conversationHistory) {
+  if (!window.conversationHistory && !isStreaming) {
     window.conversationHistory = [{ role: "assistant", content: summary }];
   }
 
@@ -497,162 +586,167 @@ function displaySummaryModal(summary) {
   content.style.padding = "20px 24px"; // Increased padding
   content.style.color = "#333"; // Darker text for better readability
 
-  // Process the summary based on its type
-  try {
-    // Check if we have a structured JSON summary
-    if (summary.type === "json_summary" && summary.data) {
-      // Render the JSON summary with our enhanced formatter
-      renderJsonSummary(summary.data, content);
-    } else if (summary.type === "text_summary" && summary.text) {
-      // Handle the text summary format
-      renderTextSummary(summary.text, content);
-    } else if (typeof summary === "string") {
-      // Check for error message
-      if (summary.startsWith("Error:")) {
+  // If we're in streaming mode, just insert the HTML directly
+  if (isStreaming) {
+    content.innerHTML = summary;
+  } else {
+    // Process the summary based on its type
+    try {
+      // Check if we have a structured JSON summary
+      if (summary.type === "json_summary" && summary.data) {
+        // Render the JSON summary with our enhanced formatter
+        renderJsonSummary(summary.data, content);
+      } else if (summary.type === "text_summary" && summary.text) {
+        // Handle the text summary format
+        renderTextSummary(summary.text, content);
+      } else if (typeof summary === "string") {
+        // Check for error message
+        if (summary.startsWith("Error:")) {
+          const errorDiv = document.createElement("div");
+          errorDiv.className = "ai-summary-error";
+          errorDiv.style.color = "#d32f2f";
+          errorDiv.style.padding = "15px";
+          errorDiv.style.backgroundColor = "#ffebee";
+          errorDiv.style.borderRadius = "4px";
+          errorDiv.innerText = summary;
+          content.appendChild(errorDiv);
+        }
+        // Handle markdown formatting
+        else if (summary.includes("#") || summary.includes("-")) {
+          // Enhanced markdown parser with timestamp handling
+          const formattedContent = processSummaryWithTimestamps(summary);
+          content.innerHTML = formattedContent;
+        } else {
+          // Check if this looks like a bullet list with • characters
+          if (summary.includes("•")) {
+            // This is likely a bullet list - use special formatting
+            content.innerHTML = formatBulletedSummary(summary);
+          } else {
+            // Simple string summary with enhanced formatting
+            const paragraphs = summary.split("\n\n");
+            paragraphs.forEach((paragraph) => {
+              if (paragraph.trim()) {
+                // Check for timestamps in the paragraph
+                const p = document.createElement("div");
+                p.style.marginBottom = "16px";
+
+                // Process potential timestamps
+                const processedPara = processTimestampsInText(paragraph);
+                p.innerHTML = processedPara;
+
+                content.appendChild(p);
+              }
+            });
+          }
+        }
+      } else if (summary && typeof summary === "object") {
+        // Additional logging for debugging object structure
+        console.log(
+          "[YouTube AI Summarizer] Summary object structure:",
+          JSON.stringify(summary).substring(0, 500)
+        );
+
+        // Handle structured summary objects
+        if (summary.html) {
+          // Add timestamp processing to HTML content if possible
+          content.innerHTML = enhanceHtmlWithTimestampsStyling(summary.html);
+        } else if (summary.text || summary.summary) {
+          // Use summary field if available (for backward compatibility)
+          const summaryText = summary.text || summary.summary;
+
+          // Create formatted sections with enhanced styling
+          const mainSummary = document.createElement("div");
+          mainSummary.className = "ai-summary-section";
+          mainSummary.style.fontSize = "16px";
+          mainSummary.style.lineHeight = "1.6";
+          mainSummary.style.marginBottom = "20px";
+
+          // Process potential timestamps in main summary
+          mainSummary.innerHTML = processTimestampsInText(summaryText);
+          content.appendChild(mainSummary);
+
+          // Add any additional sections
+          if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
+            const keyPointsSection = document.createElement("div");
+            keyPointsSection.className = "ai-summary-key-points";
+            keyPointsSection.style.backgroundColor = "#f0f7ff";
+            keyPointsSection.style.padding = "16px";
+            keyPointsSection.style.borderRadius = "8px";
+            keyPointsSection.style.marginTop = "20px";
+
+            const keyPointsTitle = document.createElement("h4");
+            keyPointsTitle.textContent = "Key Points";
+            keyPointsTitle.style.marginTop = "0";
+            keyPointsTitle.style.marginBottom = "15px";
+            keyPointsTitle.style.color = "#0066cc";
+            keyPointsTitle.style.fontSize = "18px";
+            keyPointsSection.appendChild(keyPointsTitle);
+
+            const keyPointsList = document.createElement("ul");
+            keyPointsList.style.paddingLeft = "24px";
+            keyPointsList.style.marginBottom = "0";
+
+            summary.keyPoints.forEach((point) => {
+              const li = document.createElement("li");
+              li.style.marginBottom = "10px";
+              li.style.position = "relative";
+
+              // Process potential timestamps in key points
+              li.innerHTML = processTimestampsInText(point);
+              keyPointsList.appendChild(li);
+            });
+            keyPointsSection.appendChild(keyPointsList);
+            content.appendChild(keyPointsSection);
+          }
+        } else {
+          // Fallback for unknown object structure - try to extract any text content
+          let extractedText = "";
+
+          // Look for any property that might contain the summary text
+          for (const key in summary) {
+            if (typeof summary[key] === "string" && summary[key].length > 50) {
+              extractedText = summary[key];
+              break;
+            }
+          }
+
+          if (extractedText) {
+            const p = document.createElement("div");
+            p.style.marginBottom = "16px";
+            p.style.lineHeight = "1.6";
+
+            // Process potential timestamps in extracted text
+            p.innerHTML = processTimestampsInText(extractedText);
+            content.appendChild(p);
+          } else {
+            // Last resort - stringify the object
+            const p = document.createElement("p");
+            p.innerText = "Summary: " + JSON.stringify(summary, null, 2);
+            content.appendChild(p);
+          }
+        }
+      } else {
+        // Handle unexpected summary type
         const errorDiv = document.createElement("div");
         errorDiv.className = "ai-summary-error";
         errorDiv.style.color = "#d32f2f";
         errorDiv.style.padding = "15px";
         errorDiv.style.backgroundColor = "#ffebee";
         errorDiv.style.borderRadius = "4px";
-        errorDiv.innerText = summary;
+        errorDiv.innerText = "Error: Received unexpected summary format.";
         content.appendChild(errorDiv);
       }
-      // Handle markdown formatting
-      else if (summary.includes("#") || summary.includes("-")) {
-        // Enhanced markdown parser with timestamp handling
-        const formattedContent = processSummaryWithTimestamps(summary);
-        content.innerHTML = formattedContent;
-      } else {
-        // Check if this looks like a bullet list with • characters
-        if (summary.includes("•")) {
-          // This is likely a bullet list - use special formatting
-          content.innerHTML = formatBulletedSummary(summary);
-        } else {
-          // Simple string summary with enhanced formatting
-          const paragraphs = summary.split("\n\n");
-          paragraphs.forEach((paragraph) => {
-            if (paragraph.trim()) {
-              // Check for timestamps in the paragraph
-              const p = document.createElement("div");
-              p.style.marginBottom = "16px";
-
-              // Process potential timestamps
-              const processedPara = processTimestampsInText(paragraph);
-              p.innerHTML = processedPara;
-
-              content.appendChild(p);
-            }
-          });
-        }
-      }
-    } else if (summary && typeof summary === "object") {
-      // Additional logging for debugging object structure
-      console.log(
-        "[YouTube AI Summarizer] Summary object structure:",
-        JSON.stringify(summary).substring(0, 500)
-      );
-
-      // Handle structured summary objects
-      if (summary.html) {
-        // Add timestamp processing to HTML content if possible
-        content.innerHTML = enhanceHtmlWithTimestampsStyling(summary.html);
-      } else if (summary.text || summary.summary) {
-        // Use summary field if available (for backward compatibility)
-        const summaryText = summary.text || summary.summary;
-
-        // Create formatted sections with enhanced styling
-        const mainSummary = document.createElement("div");
-        mainSummary.className = "ai-summary-section";
-        mainSummary.style.fontSize = "16px";
-        mainSummary.style.lineHeight = "1.6";
-        mainSummary.style.marginBottom = "20px";
-
-        // Process potential timestamps in main summary
-        mainSummary.innerHTML = processTimestampsInText(summaryText);
-        content.appendChild(mainSummary);
-
-        // Add any additional sections
-        if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
-          const keyPointsSection = document.createElement("div");
-          keyPointsSection.className = "ai-summary-key-points";
-          keyPointsSection.style.backgroundColor = "#f0f7ff";
-          keyPointsSection.style.padding = "16px";
-          keyPointsSection.style.borderRadius = "8px";
-          keyPointsSection.style.marginTop = "20px";
-
-          const keyPointsTitle = document.createElement("h4");
-          keyPointsTitle.textContent = "Key Points";
-          keyPointsTitle.style.marginTop = "0";
-          keyPointsTitle.style.marginBottom = "15px";
-          keyPointsTitle.style.color = "#0066cc";
-          keyPointsTitle.style.fontSize = "18px";
-          keyPointsSection.appendChild(keyPointsTitle);
-
-          const keyPointsList = document.createElement("ul");
-          keyPointsList.style.paddingLeft = "24px";
-          keyPointsList.style.marginBottom = "0";
-
-          summary.keyPoints.forEach((point) => {
-            const li = document.createElement("li");
-            li.style.marginBottom = "10px";
-            li.style.position = "relative";
-
-            // Process potential timestamps in key points
-            li.innerHTML = processTimestampsInText(point);
-            keyPointsList.appendChild(li);
-          });
-          keyPointsSection.appendChild(keyPointsList);
-          content.appendChild(keyPointsSection);
-        }
-      } else {
-        // Fallback for unknown object structure - try to extract any text content
-        let extractedText = "";
-
-        // Look for any property that might contain the summary text
-        for (const key in summary) {
-          if (typeof summary[key] === "string" && summary[key].length > 50) {
-            extractedText = summary[key];
-            break;
-          }
-        }
-
-        if (extractedText) {
-          const p = document.createElement("div");
-          p.style.marginBottom = "16px";
-          p.style.lineHeight = "1.6";
-
-          // Process potential timestamps in extracted text
-          p.innerHTML = processTimestampsInText(extractedText);
-          content.appendChild(p);
-        } else {
-          // Last resort - stringify the object
-          const p = document.createElement("p");
-          p.innerText = "Summary: " + JSON.stringify(summary, null, 2);
-          content.appendChild(p);
-        }
-      }
-    } else {
-      // Handle unexpected summary type
+    } catch (error) {
+      console.error("[YouTube AI Summarizer] Error processing summary:", error);
       const errorDiv = document.createElement("div");
       errorDiv.className = "ai-summary-error";
       errorDiv.style.color = "#d32f2f";
       errorDiv.style.padding = "15px";
       errorDiv.style.backgroundColor = "#ffebee";
       errorDiv.style.borderRadius = "4px";
-      errorDiv.innerText = "Error: Received unexpected summary format.";
+      errorDiv.innerText = "Error displaying summary: " + error.message;
       content.appendChild(errorDiv);
     }
-  } catch (error) {
-    console.error("[YouTube AI Summarizer] Error processing summary:", error);
-    const errorDiv = document.createElement("div");
-    errorDiv.className = "ai-summary-error";
-    errorDiv.style.color = "#d32f2f";
-    errorDiv.style.padding = "15px";
-    errorDiv.style.backgroundColor = "#ffebee";
-    errorDiv.style.borderRadius = "4px";
-    errorDiv.innerText = "Error displaying summary: " + error.message;
-    content.appendChild(errorDiv);
   }
 
   // Add a separator for chat messages
@@ -801,16 +895,43 @@ async function handleChatSubmit() {
     // Get video metadata for context
     const videoMetadata = getVideoMetadata();
 
-    // Send request to background script for streaming response
-    await safeSendMessage({
-      type: "CHAT_MESSAGE",
-      payload: {
-        message: userMessage,
-        history: window.conversationHistory,
-        metadata: videoMetadata,
-        responseId: responseId,
-      },
+    console.log("[YouTube AI Summarizer] Sending chat message with payload:", {
+      message: userMessage,
+      historyLength: window.conversationHistory.length,
+      metadata: videoMetadata,
+      responseId: responseId,
     });
+
+    // Send request to background script for streaming response
+    const response = await chrome.runtime
+      .sendMessage({
+        type: "CHAT_MESSAGE",
+        payload: {
+          message: userMessage,
+          history: window.conversationHistory,
+          metadata: videoMetadata,
+          responseId: responseId,
+        },
+      })
+      .catch((error) => {
+        console.error(
+          "[YouTube AI Summarizer] Chrome sendMessage error:",
+          error
+        );
+        throw new Error(
+          "Browser message sending failed: " +
+            (error.message || "Unknown error")
+        );
+      });
+
+    console.log(
+      "[YouTube AI Summarizer] Chat message sent successfully, response:",
+      response
+    );
+
+    if (response && response.error) {
+      throw new Error(response.error);
+    }
 
     console.log(
       "[YouTube AI Summarizer] Chat message sent, waiting for streaming response"
@@ -819,8 +940,31 @@ async function handleChatSubmit() {
     console.error("[YouTube AI Summarizer] Error sending chat message:", error);
     updateStreamingMessage(
       responseId,
-      "Error: Failed to send message. Please try again."
+      "Error: Failed to send message. Please try again. Details: " +
+        error.message
     );
+
+    // Add error to console for debugging
+    console.error("[YouTube AI Summarizer] Detailed error:", error);
+
+    // Try direct API call as fallback
+    try {
+      console.log("[YouTube AI Summarizer] Attempting fallback method");
+      await safeSendMessage({
+        type: "CHAT_MESSAGE_FALLBACK",
+        payload: {
+          message: userMessage,
+          history: window.conversationHistory,
+          metadata: videoMetadata,
+          responseId: responseId,
+        },
+      });
+    } catch (fallbackError) {
+      console.error(
+        "[YouTube AI Summarizer] Fallback also failed:",
+        fallbackError
+      );
+    }
   } finally {
     // Reset input field
     chatInput.value = "";
@@ -1836,27 +1980,6 @@ function processSummaryWithTimestamps(markdown) {
     });
   }
 
-  // Function to extract video metadata
-  function getVideoMetadata() {
-    const title =
-      document
-        .querySelector("h1.ytd-video-primary-info-renderer")
-        ?.textContent?.trim() ||
-      document.querySelector("h1.title")?.textContent?.trim() ||
-      document.title;
-
-    const channel =
-      document.querySelector("#owner-name a")?.textContent?.trim() ||
-      document.querySelector(".ytd-channel-name")?.textContent?.trim() ||
-      "Unknown channel";
-
-    return {
-      title: title,
-      url: window.location.href,
-      channel: channel,
-    };
-  }
-
   // Assign handleSummarizeClick to the outer scope reference so it can be used by the message handler
   handleSummarizeClick = async function () {
     if (isProcessing) return;
@@ -1897,113 +2020,77 @@ function processSummaryWithTimestamps(markdown) {
           "[YouTube AI Summarizer] Waiting for transcript panel to appear"
         );
         await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        // Ensure transcript is fully loaded
-        await ensureTranscriptVisible();
-        console.log(
-          "[YouTube AI Summarizer] Transcript panel opened successfully"
-        );
       } catch (transcriptError) {
         console.error(
-          "[YouTube AI Summarizer] Transcript visibility error:",
+          "[YouTube AI Summarizer] Error showing transcript:",
           transcriptError
         );
-        // Don't give up yet - we'll try other methods to extract transcript
+        showError(
+          "Could not find or open transcript. Please ensure the video has captions and try again."
+        );
+        return;
       }
 
-      // Additional delay to ensure transcript is fully loaded
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Get the transcript text
+      console.log("[YouTube AI Summarizer] Getting transcript");
+      const transcript = await getTranscriptText();
 
-      // Get transcript text
-      let transcriptText;
-      try {
-        console.log("[YouTube AI Summarizer] Starting transcript extraction");
-        transcriptText = await getTranscriptText();
-
-        if (!transcriptText || transcriptText.length < 50) {
-          console.error(
-            "[YouTube AI Summarizer] Extracted transcript too short or empty:",
-            transcriptText
-          );
-          throw new Error("Extracted transcript is too short or empty");
-        }
-
-        console.log(
-          "[YouTube AI Summarizer] Transcript extraction successful, length:",
-          transcriptText.length
-        );
-
-        // No need to log the beginning here since we already do comprehensive logging in cleanupTranscript
-      } catch (extractError) {
+      // Validate transcript
+      if (!transcript || transcript.length < 100) {
         console.error(
-          "[YouTube AI Summarizer] Transcript extraction error:",
-          extractError
+          "[YouTube AI Summarizer] Transcript too short or empty:",
+          transcript
         );
-        hideLoadingIndicator();
-        displaySummaryModal(
-          `Error: Could not extract the transcript from this video. Please ensure the video has captions/transcript available and try again. 
-          
-          Troubleshooting tips:
-          1. Make sure the video has closed captions enabled (CC button)
-          2. Try manually opening the transcript (three dots menu → Show transcript)
-          3. Try refreshing the page`
+        showError(
+          "Could not extract valid transcript. Please make sure the video has captions and try again."
         );
-        isSummaryInProgress = false;
-
-        // Reset button states
-        if (summarizeButton) {
-          summarizeButton.textContent = config.buttonText;
-          summarizeButton.disabled = false;
-        }
-
         return;
       }
 
       // Get video metadata for context
       const videoMetadata = getVideoMetadata();
-      console.log("[YouTube AI Summarizer] Video metadata:", videoMetadata);
 
-      // Send to background script for processing
       console.log(
-        "[YouTube AI Summarizer] Sending transcript to background script for summarization, transcript length:",
-        transcriptText?.length || 0
+        "[YouTube AI Summarizer] Sending summarize request with payload:",
+        {
+          text: transcript.substring(0, 100) + "...",
+          metadataTitle: videoMetadata.title,
+          url: videoMetadata.url,
+        }
       );
 
-      console.log("[YouTube AI Summarizer] Initiating LLM request");
-      await safeSendMessage({
+      // Send request to background script to handle the AI processing
+      isSummaryInProgress = true;
+      const result = await safeSendMessage({
         type: "SUMMARIZE",
         payload: {
-          text: transcriptText,
-          metadata: videoMetadata,
+          text: transcript,
+          title: videoMetadata.title,
+          url: videoMetadata.url,
+          channel: videoMetadata.channel,
+          // Indicate we can handle streaming response for the initial summary
+          supportStreaming: true,
         },
       });
+
       console.log(
-        "[YouTube AI Summarizer] LLM request sent successfully, waiting for response"
+        "[YouTube AI Summarizer] Summarize request sent, waiting for streaming response"
       );
     } catch (error) {
-      console.error("[YouTube AI Summarizer] Error summarizing:", error);
-      hideLoadingIndicator();
-      displaySummaryModal(
-        `Error: ${
-          error.message || "Could not summarize the transcript"
-        }. Please try again.`
+      console.error(
+        "[YouTube AI Summarizer] Error during summarization:",
+        error
       );
+      showError("Error during summarization: " + error.message);
+      hideLoadingIndicator();
+      isProcessing = false;
       isSummaryInProgress = false;
 
-      // Reset button states
+      // Reset button state
       if (summarizeButton) {
         summarizeButton.textContent = config.buttonText;
         summarizeButton.disabled = false;
       }
-    } finally {
-      // Reset button state (we'll update again when the summary comes back)
-      setTimeout(() => {
-        isProcessing = false;
-        if (summarizeButton) {
-          summarizeButton.textContent = config.buttonText;
-          summarizeButton.disabled = false;
-        }
-      }, 1000);
     }
   };
 
