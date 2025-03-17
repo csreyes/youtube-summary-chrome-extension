@@ -254,6 +254,16 @@ function showLoadingIndicator() {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
+  // Add event listeners to timestamp elements
+  attachTimestampClickHandlers();
+
+  // Add click handler to close on overlay click but not modal click
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      document.body.removeChild(overlay);
+    }
+  });
+
   // Add escape key handler
   document.addEventListener("keydown", function escapeHandler(e) {
     if (e.key === "Escape") {
@@ -369,6 +379,7 @@ function displaySummaryModal(summary) {
   // Create modal
   const modal = document.createElement("div");
   modal.className = "ai-summary-modal";
+  modal.style.fontSize = "16px"; // Base font size for better readability
 
   // Header with title and close button
   const header = document.createElement("div");
@@ -391,6 +402,9 @@ function displaySummaryModal(summary) {
   // Content area with the summary
   const content = document.createElement("div");
   content.className = "ai-summary-content";
+  // Add some extra styling for better readability
+  content.style.lineHeight = "1.6";
+  content.style.fontSize = "16px";
 
   // Process the summary based on its type
   try {
@@ -404,39 +418,22 @@ function displaySummaryModal(summary) {
       }
       // Handle markdown formatting
       else if (summary.includes("#") || summary.includes("-")) {
-        // Simple markdown parser
-        let formattedContent = summary
-          // Headers
-          .replace(/^#\s+(.+)$/gm, "<h1>$1</h1>")
-          .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
-          .replace(/^###\s+(.+)$/gm, "<h3>$1</h3>")
-          // Lists
-          .replace(/^-\s+(.+)$/gm, "<li>$1</li>")
-          // Paragraphs
-          .split("\n\n")
-          .map((para) => {
-            if (!para.startsWith("<h") && !para.startsWith("<li")) {
-              return `<p>${para}</p>`;
-            }
-            return para;
-          })
-          .join("");
-
-        // Wrap lists
-        formattedContent = formattedContent
-          .replace(/<li>(.+?)<\/li>/g, function (match) {
-            return "<ul>" + match + "</ul>";
-          })
-          .replace(/<\/ul><ul>/g, "");
-
+        // Enhanced markdown parser with timestamp handling
+        const formattedContent = processSummaryWithTimestamps(summary);
         content.innerHTML = formattedContent;
       } else {
-        // Simple string summary
+        // Simple string summary with enhanced formatting
         const paragraphs = summary.split("\n\n");
         paragraphs.forEach((paragraph) => {
           if (paragraph.trim()) {
-            const p = document.createElement("p");
-            p.innerText = paragraph;
+            // Check for timestamps in the paragraph
+            const p = document.createElement("div");
+            p.style.marginBottom = "16px";
+
+            // Process potential timestamps
+            const processedPara = processTimestampsInText(paragraph);
+            p.innerHTML = processedPara;
+
             content.appendChild(p);
           }
         });
@@ -450,30 +447,51 @@ function displaySummaryModal(summary) {
 
       // Handle structured summary objects
       if (summary.html) {
-        content.innerHTML = summary.html;
+        // Add timestamp processing to HTML content if possible
+        content.innerHTML = enhanceHtmlWithTimestampsStyling(summary.html);
       } else if (summary.text || summary.summary) {
         // Use summary field if available (for backward compatibility)
         const summaryText = summary.text || summary.summary;
 
-        // Create formatted sections
+        // Create formatted sections with enhanced styling
         const mainSummary = document.createElement("div");
         mainSummary.className = "ai-summary-section";
-        mainSummary.innerText = summaryText;
+        mainSummary.style.fontSize = "16px";
+        mainSummary.style.lineHeight = "1.6";
+        mainSummary.style.marginBottom = "20px";
+
+        // Process potential timestamps in main summary
+        mainSummary.innerHTML = processTimestampsInText(summaryText);
         content.appendChild(mainSummary);
 
         // Add any additional sections
         if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
           const keyPointsSection = document.createElement("div");
           keyPointsSection.className = "ai-summary-key-points";
+          keyPointsSection.style.backgroundColor = "#f8f8f8";
+          keyPointsSection.style.padding = "16px";
+          keyPointsSection.style.borderRadius = "8px";
+          keyPointsSection.style.marginTop = "20px";
 
           const keyPointsTitle = document.createElement("h4");
           keyPointsTitle.textContent = "Key Points";
+          keyPointsTitle.style.marginTop = "0";
+          keyPointsTitle.style.marginBottom = "15px";
+          keyPointsTitle.style.color = "#cc0000";
+          keyPointsTitle.style.fontSize = "18px";
           keyPointsSection.appendChild(keyPointsTitle);
 
           const keyPointsList = document.createElement("ul");
+          keyPointsList.style.paddingLeft = "24px";
+          keyPointsList.style.marginBottom = "0";
+
           summary.keyPoints.forEach((point) => {
             const li = document.createElement("li");
-            li.textContent = point;
+            li.style.marginBottom = "10px";
+            li.style.position = "relative";
+
+            // Process potential timestamps in key points
+            li.innerHTML = processTimestampsInText(point);
             keyPointsList.appendChild(li);
           });
           keyPointsSection.appendChild(keyPointsList);
@@ -492,8 +510,12 @@ function displaySummaryModal(summary) {
         }
 
         if (extractedText) {
-          const p = document.createElement("p");
-          p.innerText = extractedText;
+          const p = document.createElement("div");
+          p.style.marginBottom = "16px";
+          p.style.lineHeight = "1.6";
+
+          // Process potential timestamps in extracted text
+          p.innerHTML = processTimestampsInText(extractedText);
           content.appendChild(p);
         } else {
           // Last resort - stringify the object
@@ -529,6 +551,9 @@ function displaySummaryModal(summary) {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
+  // Add event listeners to timestamp elements
+  attachTimestampClickHandlers();
+
   // Add click handler to close on overlay click but not modal click
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) {
@@ -547,6 +572,84 @@ function displaySummaryModal(summary) {
       }
       document.removeEventListener("keydown", escapeHandler);
     }
+  });
+}
+
+// Function to process and enhance markdown summary with timestamps
+function processSummaryWithTimestamps(summary) {
+  // First enhance headings
+  let formattedContent = summary
+    // Headers with enhanced styling
+    .replace(
+      /^#\s+(.+)$/gm,
+      '<h1 style="color:#cc0000; font-size:22px; margin-top:26px; margin-bottom:16px;">$1</h1>'
+    )
+    .replace(
+      /^##\s+(.+)$/gm,
+      '<h2 style="color:#cc0000; font-size:20px; margin-top:22px; margin-bottom:14px;">$1</h2>'
+    )
+    .replace(
+      /^###\s+(.+)$/gm,
+      '<h3 style="color:#cc0000; font-size:18px; margin-top:20px; margin-bottom:12px;">$1</h3>'
+    )
+    // Lists with better styling
+    .replace(
+      /^-\s+(.+)$/gm,
+      '<li style="margin-bottom:10px; position:relative;">$1</li>'
+    );
+
+  // Split into paragraphs for better formatting
+  formattedContent = formattedContent
+    .split("\n\n")
+    .map((para) => {
+      if (!para.trim()) return "";
+      if (para.startsWith("<h") || para.startsWith("<li")) {
+        return para;
+      }
+      return `<p style="margin-bottom:16px; line-height:1.6;">${para}</p>`;
+    })
+    .join("");
+
+  // Process timestamps in the content
+  formattedContent = processTimestampsInText(formattedContent);
+
+  // Wrap lists properly
+  formattedContent = formattedContent
+    .replace(/<li>(.+?)<\/li>/g, function (match) {
+      return (
+        '<ul style="padding-left:24px; margin-bottom:20px; margin-top:10px;">' +
+        match +
+        "</ul>"
+      );
+    })
+    .replace(/<\/ul><ul[^>]*>/g, "");
+
+  return formattedContent;
+}
+
+// Function to detect and enhance timestamps in text
+function processTimestampsInText(text) {
+  if (!text) return "";
+
+  // Regular expression to match YouTube time formats: 1:23, 01:23, 1:23:45, etc.
+  const timeRegex = /\b(\d+:)?(\d+):(\d+)\b/g;
+
+  // Replace timestamps with styled clickable spans
+  return text.replace(timeRegex, function (match) {
+    return `<span class="ai-timestamp" style="color:#cc0000; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
+  });
+}
+
+// Function to enhance HTML content with timestamp styling
+function enhanceHtmlWithTimestampsStyling(html) {
+  if (!html) return "";
+
+  // Regular expression to match YouTube time formats: 1:23, 01:23, 1:23:45, etc.
+  const timeRegex = /\b(\d+:)?(\d+):(\d+)\b/g;
+
+  // Replace timestamps with styled clickable spans while preserving HTML structure
+  return html.replace(timeRegex, function (match) {
+    return `<span class="ai-timestamp" style="color:#cc0000; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
   });
 }
 
@@ -1505,3 +1608,73 @@ function displaySummaryModal(summary) {
     }
   }, 1000);
 })();
+
+// Function to attach click handlers to timestamp elements
+function attachTimestampClickHandlers() {
+  // Find all timestamp elements
+  const timestampElements = document.querySelectorAll(".ai-timestamp");
+
+  timestampElements.forEach((element) => {
+    element.addEventListener("click", (e) => {
+      e.preventDefault();
+      const timeString = e.target.getAttribute("data-time");
+
+      if (timeString) {
+        // Parse the timestamp string and convert to seconds
+        const seconds = convertTimestampToSeconds(timeString);
+        if (seconds !== null) {
+          // Jump to the timestamp in the video
+          jumpToVideoTime(seconds);
+        }
+      }
+    });
+  });
+}
+
+// Function to convert timestamp string (e.g., "1:30" or "1:30:45") to seconds
+function convertTimestampToSeconds(timestamp) {
+  if (!timestamp) return null;
+
+  const parts = timestamp.split(":").map((part) => parseInt(part));
+
+  if (parts.length === 2) {
+    // Format: MM:SS
+    return parts[0] * 60 + parts[1];
+  } else if (parts.length === 3) {
+    // Format: HH:MM:SS
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+
+  return null;
+}
+
+// Function to jump to a specific time in the YouTube video
+function jumpToVideoTime(seconds) {
+  try {
+    // Check if YouTube player API is available
+    const videoElement = document.querySelector("video");
+
+    if (videoElement) {
+      console.log(
+        `[YouTube AI Summarizer] Jumping to timestamp: ${seconds} seconds`
+      );
+      videoElement.currentTime = seconds;
+
+      // Try to also use the YouTube API if it's available
+      if (
+        window.yt &&
+        window.yt.player &&
+        window.yt.player.getPlayerByElement
+      ) {
+        const player = window.yt.player.getPlayerByElement(videoElement);
+        if (player && typeof player.seekTo === "function") {
+          player.seekTo(seconds);
+        }
+      }
+    } else {
+      console.error("[YouTube AI Summarizer] Video element not found");
+    }
+  } catch (error) {
+    console.error("[YouTube AI Summarizer] Error jumping to timestamp:", error);
+  }
+}
