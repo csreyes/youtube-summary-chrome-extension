@@ -377,23 +377,57 @@ function displaySummaryModal(summary) {
   const overlay = document.createElement("div");
   overlay.id = "ai-summary-modal-container";
   overlay.className = "ai-summary-overlay";
+  overlay.style.position = "fixed";
+  overlay.style.top = "0";
+  overlay.style.left = "0";
+  overlay.style.width = "100%";
+  overlay.style.height = "100%";
+  overlay.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
+  overlay.style.display = "flex";
+  overlay.style.justifyContent = "center";
+  overlay.style.alignItems = "center";
+  overlay.style.zIndex = "9999";
 
   // Create modal
   const modal = document.createElement("div");
   modal.className = "ai-summary-modal";
+  modal.style.backgroundColor = "white";
+  modal.style.borderRadius = "8px";
+  modal.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.3)";
+  modal.style.width = "80%";
+  modal.style.maxWidth = "800px"; // Increased max width for longer content
+  modal.style.maxHeight = "85vh"; // Increased max height
+  modal.style.display = "flex";
+  modal.style.flexDirection = "column";
   modal.style.fontSize = "16px"; // Base font size for better readability
+  modal.style.overflowY = "hidden"; // Hide overflow on the modal itself
 
   // Header with title and close button
   const header = document.createElement("div");
   header.className = "ai-summary-header";
+  header.style.padding = "16px 20px";
+  header.style.borderBottom = "1px solid #e0e0e0";
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
+  header.style.backgroundColor = "#f0f7ff"; // Light blue header
 
   const title = document.createElement("h3");
   title.textContent = "AI Summary";
+  title.style.margin = "0";
+  title.style.color = "#0066cc";
+  title.style.fontSize = "20px";
   header.appendChild(title);
 
   const closeBtn = document.createElement("button");
   closeBtn.className = "ai-summary-close-btn";
   closeBtn.textContent = "×";
+  closeBtn.style.background = "none";
+  closeBtn.style.border = "none";
+  closeBtn.style.fontSize = "24px";
+  closeBtn.style.cursor = "pointer";
+  closeBtn.style.color = "#0066cc";
+  closeBtn.style.padding = "0 5px";
   closeBtn.addEventListener("click", () => {
     document.body.removeChild(overlay);
   });
@@ -401,13 +435,19 @@ function displaySummaryModal(summary) {
 
   modal.appendChild(header);
 
-  // Content area with the summary
+  // Content area with scrolling for longer content
+  const contentWrapper = document.createElement("div");
+  contentWrapper.style.flexGrow = "1";
+  contentWrapper.style.overflowY = "auto"; // Allow scrolling for content
+  contentWrapper.style.maxHeight = "calc(85vh - 120px)"; // Account for header and footer
+
   const content = document.createElement("div");
   content.className = "ai-summary-content";
   // Add some extra styling for better readability
   content.style.lineHeight = "1.6";
   content.style.fontSize = "16px";
-  content.style.padding = "5px 20px 15px 20px"; // Add more padding
+  content.style.padding = "20px 24px"; // Increased padding
+  content.style.color = "#333"; // Darker text for better readability
 
   // Process the summary based on its type
   try {
@@ -423,6 +463,10 @@ function displaySummaryModal(summary) {
       if (summary.startsWith("Error:")) {
         const errorDiv = document.createElement("div");
         errorDiv.className = "ai-summary-error";
+        errorDiv.style.color = "#d32f2f";
+        errorDiv.style.padding = "15px";
+        errorDiv.style.backgroundColor = "#ffebee";
+        errorDiv.style.borderRadius = "4px";
         errorDiv.innerText = summary;
         content.appendChild(errorDiv);
       }
@@ -484,7 +528,7 @@ function displaySummaryModal(summary) {
         if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
           const keyPointsSection = document.createElement("div");
           keyPointsSection.className = "ai-summary-key-points";
-          keyPointsSection.style.backgroundColor = "#f8f8f8";
+          keyPointsSection.style.backgroundColor = "#f0f7ff";
           keyPointsSection.style.padding = "16px";
           keyPointsSection.style.borderRadius = "8px";
           keyPointsSection.style.marginTop = "20px";
@@ -493,7 +537,7 @@ function displaySummaryModal(summary) {
           keyPointsTitle.textContent = "Key Points";
           keyPointsTitle.style.marginTop = "0";
           keyPointsTitle.style.marginBottom = "15px";
-          keyPointsTitle.style.color = "#cc0000";
+          keyPointsTitle.style.color = "#0066cc";
           keyPointsTitle.style.fontSize = "18px";
           keyPointsSection.appendChild(keyPointsTitle);
 
@@ -544,6 +588,10 @@ function displaySummaryModal(summary) {
       // Handle unexpected summary type
       const errorDiv = document.createElement("div");
       errorDiv.className = "ai-summary-error";
+      errorDiv.style.color = "#d32f2f";
+      errorDiv.style.padding = "15px";
+      errorDiv.style.backgroundColor = "#ffebee";
+      errorDiv.style.borderRadius = "4px";
       errorDiv.innerText = "Error: Received unexpected summary format.";
       content.appendChild(errorDiv);
     }
@@ -551,16 +599,27 @@ function displaySummaryModal(summary) {
     console.error("[YouTube AI Summarizer] Error processing summary:", error);
     const errorDiv = document.createElement("div");
     errorDiv.className = "ai-summary-error";
+    errorDiv.style.color = "#d32f2f";
+    errorDiv.style.padding = "15px";
+    errorDiv.style.backgroundColor = "#ffebee";
+    errorDiv.style.borderRadius = "4px";
     errorDiv.innerText = "Error displaying summary: " + error.message;
     content.appendChild(errorDiv);
   }
 
-  modal.appendChild(content);
+  contentWrapper.appendChild(content);
+  modal.appendChild(contentWrapper);
 
   // Add footer with attribution
   const footer = document.createElement("div");
   footer.className = "ai-summary-footer";
-  footer.innerHTML = "<p>Powered by YouTube AI Summarizer</p>";
+  footer.style.padding = "12px 20px";
+  footer.style.borderTop = "1px solid #e0e0e0";
+  footer.style.fontSize = "13px";
+  footer.style.color = "#666";
+  footer.style.textAlign = "center";
+  footer.innerHTML =
+    "<p style='margin: 0;'>Powered by YouTube AI Summarizer</p>";
   modal.appendChild(footer);
 
   // Add to DOM
@@ -591,88 +650,6 @@ function displaySummaryModal(summary) {
   });
 }
 
-// Enhanced function to process markdown summaries with timestamps
-function processSummaryWithTimestamps(markdown) {
-  // Check for overview section and enhance it
-  let enhancedMarkdown = markdown;
-
-  // First, find if there's an "Overview:" or similar section and enhance it
-  const overviewMatch = markdown.match(
-    /^\s*(Overview|Summary|Introduction):\s*([\s\S]+?)(?=\n\s*(?:[A-Z][a-z]+:|\n\s*$))/i
-  );
-
-  if (overviewMatch) {
-    const overviewTitle = overviewMatch[1];
-    const overviewContent = overviewMatch[2].trim();
-
-    // Create enhanced overview HTML
-    const enhancedOverview = `
-      <div style="background-color: #f8f8f8; padding: 16px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid #cc0000;">
-        <h3 style="color: #cc0000; margin-top: 0; margin-bottom: 10px; font-size: 18px;">${overviewTitle}</h3>
-        <p style="margin: 0; line-height: 1.6; font-size: 16px;">${processTimestampsInText(
-          overviewContent
-        )}</p>
-      </div>
-    `;
-
-    // Replace the original overview with enhanced version
-    enhancedMarkdown = enhancedMarkdown.replace(
-      overviewMatch[0],
-      enhancedOverview
-    );
-  }
-
-  // Handle headers with specific formatting
-  enhancedMarkdown = enhancedMarkdown.replace(
-    /^(#+)\s*(.*?)$/gm,
-    (match, hashes, text) => {
-      const level = hashes.length;
-      const fontSize = 22 - level * 2; // h1: 20px, h2: 18px, h3: 16px
-      const color =
-        level === 1 ? "#cc0000" : level === 2 ? "#333333" : "#555555";
-      const marginTop = level === 1 ? "25px" : "20px";
-      const marginBottom = "12px";
-      const paddingBottom = level <= 2 ? "8px" : "0";
-      const borderBottom = level <= 2 ? "1px solid #e0e0e0" : "none";
-
-      return `<h${level} style="font-size: ${fontSize}px; color: ${color}; margin-top: ${marginTop}; margin-bottom: ${marginBottom}; padding-bottom: ${paddingBottom}; border-bottom: ${borderBottom}; font-weight: 600;">${processTimestampsInText(
-        text
-      )}</h${level}>`;
-    }
-  );
-
-  // Process bullet points for better styling
-  enhancedMarkdown = enhancedMarkdown.replace(
-    /^(\s*[-*])\s*(.*?)$/gm,
-    (match, bullet, text) => {
-      return `<div style="display: flex; margin-bottom: 10px; padding-left: 8px;">
-      <div style="color: #cc0000; margin-right: 8px;">•</div>
-      <div style="flex: 1; line-height: 1.5;">${processTimestampsInText(
-        text
-      )}</div>
-    </div>`;
-    }
-  );
-
-  // Handle paragraphs
-  let paragraphs = enhancedMarkdown.split("\n\n");
-  paragraphs = paragraphs.map((para) => {
-    if (
-      para.trim() &&
-      !para.includes("<h") &&
-      !para.includes("<div") &&
-      !para.includes("style=")
-    ) {
-      return `<p style="margin-top: 10px; margin-bottom: 15px; line-height: 1.6;">${processTimestampsInText(
-        para
-      )}</p>`;
-    }
-    return para;
-  });
-
-  return paragraphs.join("\n");
-}
-
 // Function to detect and enhance timestamps in text
 function processTimestampsInText(text) {
   // Match patterns like '0:05', '1:30', '01:30', '1:30:45', etc.
@@ -693,7 +670,7 @@ function processTimestampsInText(text) {
     }
 
     // Create a clickable link for the timestamp
-    return `<a href="#" class="timestamp-link" data-time="${seconds}" style="color: #cc0000; text-decoration: underline; font-weight: 600;">${match}</a>`;
+    return `<a href="#" class="timestamp-link" data-time="${seconds}" style="color: #0066cc; text-decoration: underline; font-weight: 600;">${match}</a>`;
   });
 }
 
@@ -706,7 +683,7 @@ function enhanceHtmlWithTimestampsStyling(html) {
 
   // Replace timestamps with styled clickable spans while preserving HTML structure
   return html.replace(timeRegex, function (match) {
-    return `<span class="ai-timestamp" style="color:#cc0000; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
+    return `<span class="ai-timestamp" style="color:#0066cc; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
   });
 }
 
@@ -735,7 +712,7 @@ function formatBulletedSummary(text) {
         const headerTitle = headerMatch[1].trim();
         const restOfLine = headerMatch[2].trim();
 
-        formatted += `<h3 style="color: #cc0000; font-size: 18px; font-weight: 600; margin-top: 20px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #e0e0e0;">${processTimestampsInText(
+        formatted += `<h3 style="color: #0066cc; font-size: 18px; font-weight: 600; margin-top: 20px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #e0e0e0;">${processTimestampsInText(
           headerTitle
         )}</h3>`;
 
@@ -796,6 +773,88 @@ function formatBulletedSummary(text) {
   }
 
   return formatted;
+}
+
+// Enhanced function to process markdown summaries with timestamps
+function processSummaryWithTimestamps(markdown) {
+  // Check for overview section and enhance it
+  let enhancedMarkdown = markdown;
+
+  // First, find if there's an "Overview:" or similar section and enhance it
+  const overviewMatch = markdown.match(
+    /^\s*(Overview|Summary|Introduction):\s*([\s\S]+?)(?=\n\s*(?:[A-Z][a-z]+:|\n\s*$))/i
+  );
+
+  if (overviewMatch) {
+    const overviewTitle = overviewMatch[1];
+    const overviewContent = overviewMatch[2].trim();
+
+    // Create enhanced overview HTML
+    const enhancedOverview = `
+      <div style="background-color: #f0f7ff; padding: 16px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid #0066cc;">
+        <h3 style="color: #0066cc; margin-top: 0; margin-bottom: 10px; font-size: 18px;">${overviewTitle}</h3>
+        <p style="margin: 0; line-height: 1.6; font-size: 16px;">${processTimestampsInText(
+          overviewContent
+        )}</p>
+      </div>
+    `;
+
+    // Replace the original overview with enhanced version
+    enhancedMarkdown = enhancedMarkdown.replace(
+      overviewMatch[0],
+      enhancedOverview
+    );
+  }
+
+  // Handle headers with specific formatting
+  enhancedMarkdown = enhancedMarkdown.replace(
+    /^(#+)\s*(.*?)$/gm,
+    (match, hashes, text) => {
+      const level = hashes.length;
+      const fontSize = 22 - level * 2; // h1: 20px, h2: 18px, h3: 16px
+      const color =
+        level === 1 ? "#0066cc" : level === 2 ? "#333333" : "#555555";
+      const marginTop = level === 1 ? "25px" : "20px";
+      const marginBottom = "12px";
+      const paddingBottom = level <= 2 ? "8px" : "0";
+      const borderBottom = level <= 2 ? "1px solid #e0e0e0" : "none";
+
+      return `<h${level} style="font-size: ${fontSize}px; color: ${color}; margin-top: ${marginTop}; margin-bottom: ${marginBottom}; padding-bottom: ${paddingBottom}; border-bottom: ${borderBottom}; font-weight: 600;">${processTimestampsInText(
+        text
+      )}</h${level}>`;
+    }
+  );
+
+  // Process bullet points for better styling
+  enhancedMarkdown = enhancedMarkdown.replace(
+    /^(\s*[-*])\s*(.*?)$/gm,
+    (match, bullet, text) => {
+      return `<div style="display: flex; margin-bottom: 10px; padding-left: 8px;">
+      <div style="color: #0066cc; margin-right: 8px;">•</div>
+      <div style="flex: 1; line-height: 1.5;">${processTimestampsInText(
+        text
+      )}</div>
+    </div>`;
+    }
+  );
+
+  // Handle paragraphs
+  let paragraphs = enhancedMarkdown.split("\n\n");
+  paragraphs = paragraphs.map((para) => {
+    if (
+      para.trim() &&
+      !para.includes("<h") &&
+      !para.includes("<div") &&
+      !para.includes("style=")
+    ) {
+      return `<p style="margin-top: 10px; margin-bottom: 15px; line-height: 1.6;">${processTimestampsInText(
+        para
+      )}</p>`;
+    }
+    return para;
+  });
+
+  return paragraphs.join("\n");
 }
 
 // Main extension code - the IIFE
@@ -1023,7 +1082,7 @@ function formatBulletedSummary(text) {
     // Make button full width
     button.style.width = "100%";
     button.style.padding = "10px 16px";
-    button.style.backgroundColor = "#cc0000";
+    button.style.backgroundColor = "#0066cc";
     button.style.color = "white";
     button.style.border = "none";
     button.style.borderRadius = "2px";
@@ -1032,10 +1091,10 @@ function formatBulletedSummary(text) {
 
     // Add hover effect
     button.addEventListener("mouseover", () => {
-      button.style.backgroundColor = "#aa0000";
+      button.style.backgroundColor = "#004499";
     });
     button.addEventListener("mouseout", () => {
-      button.style.backgroundColor = "#cc0000";
+      button.style.backgroundColor = "#0066cc";
     });
 
     // Add click handler
@@ -1865,9 +1924,9 @@ function renderJsonSummary(data, container) {
     overview.style.lineHeight = "1.6";
     overview.style.marginBottom = "24px";
     overview.style.padding = "16px";
-    overview.style.backgroundColor = "#f8f8f8";
+    overview.style.backgroundColor = "#f0f7ff";
     overview.style.borderRadius = "8px";
-    overview.style.borderLeft = "4px solid #cc0000";
+    overview.style.borderLeft = "4px solid #0066cc";
 
     // Process any timestamps in the overview
     overview.innerHTML = processTimestampsInText(data.overview);
@@ -1879,12 +1938,12 @@ function renderJsonSummary(data, container) {
     data.chapters.forEach((chapter, index) => {
       const chapterSection = document.createElement("div");
       chapterSection.className = "summary-chapter";
-      chapterSection.style.marginBottom = "24px";
+      chapterSection.style.marginBottom = "30px"; // Increased spacing between chapters
 
       // Chapter header with timestamp if available
       const header = document.createElement("h3");
       header.style.fontSize = "20px";
-      header.style.color = "#cc0000";
+      header.style.color = "#0066cc";
       header.style.fontWeight = "600";
       header.style.marginBottom = "12px";
       header.style.paddingBottom = "8px";
@@ -1909,8 +1968,9 @@ function renderJsonSummary(data, container) {
 
         chapter.points.forEach((point) => {
           const pointItem = document.createElement("li");
-          pointItem.style.marginBottom = "10px";
+          pointItem.style.marginBottom = "16px"; // Increased spacing for better readability with longer content
           pointItem.style.paddingLeft = "4px";
+          pointItem.style.lineHeight = "1.6"; // Better line height for readability
 
           // Build point text with timestamp if available
           let pointText = point.text;
@@ -1935,7 +1995,7 @@ function renderJsonSummary(data, container) {
     const takeawaysSection = document.createElement("div");
     takeawaysSection.className = "summary-takeaways";
     takeawaysSection.style.marginTop = "32px";
-    takeawaysSection.style.padding = "16px";
+    takeawaysSection.style.padding = "20px"; // Increased padding for better readability
     takeawaysSection.style.backgroundColor = "#f0f7ff";
     takeawaysSection.style.borderRadius = "8px";
 
@@ -1953,7 +2013,8 @@ function renderJsonSummary(data, container) {
 
     data.keyTakeaways.forEach((takeaway) => {
       const takeawayItem = document.createElement("li");
-      takeawayItem.style.marginBottom = "10px";
+      takeawayItem.style.marginBottom = "16px"; // Increased spacing for longer content
+      takeawayItem.style.lineHeight = "1.6"; // Better line height for readability
 
       // Build takeaway text with timestamp if available
       let takeawayText = takeaway.text;

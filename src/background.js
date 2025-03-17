@@ -178,31 +178,33 @@ async function handleSummarizeRequest(payload, tabId) {
           {
             role: "system",
             content:
-              "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
+              "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Be thorough in your explanations and don't be afraid to go into detail. When specific tactics, strategies or technical concepts are mentioned, explain them clearly so they're understandable. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
           },
           {
             role: "user",
-            content: `Please analyze this YouTube video transcript and create a structured JSON summary with the following format:
+            content: `Please analyze this YouTube video transcript and create a detailed structured JSON summary with the following format:
 
 {
-  "overview": "A concise 1-2 sentence overview of what the video is about",
+  "overview": "A thorough 3-4 sentence overview of what the video is about",
   "chapters": [
     {
       "title": "Chapter/Section Title",
       "timestamp": "MM:SS or HH:MM:SS format if available", 
       "points": [
-        {"text": "First key point in this section", "timestamp": "MM:SS if available"},
-        {"text": "Second key point in this section", "timestamp": "MM:SS if available"}
+        {"text": "First key point in this section, explained in detail. If tactics or specific methods are mentioned, explain clearly how they work", "timestamp": "MM:SS if available"},
+        {"text": "Second key point in this section with thorough explanation of any technical concepts or strategies", "timestamp": "MM:SS if available"}
       ]
     }
   ],
   "keyTakeaways": [
-    {"text": "First main takeaway from the video", "timestamp": "MM:SS if available"},
-    {"text": "Second main takeaway from the video", "timestamp": "MM:SS if available"}
+    {"text": "First main takeaway from the video with practical explanation if it references specific tactics or methods", "timestamp": "MM:SS if available"},
+    {"text": "Second main takeaway from the video with clear explanation of any technical terminology", "timestamp": "MM:SS if available"}
   ]
 }
 
 Analyze the transcript carefully to identify chapter/section breaks, and include timestamps whenever possible. If a timestamp isn't mentioned for a specific point, you can omit the timestamp field for that point.
+
+Be thorough and detailed in your explanations. When the video mentions specific tactics or methods (like "reverse demos" or technical approaches), don't just name them - explain how they work and why they're important. Provide enough explanation that a reader could understand and potentially implement the approach.
 
 Here's the transcript:
 
