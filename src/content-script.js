@@ -247,9 +247,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const summaryHTML = `
               <div id="ai-summary-streaming-container" class="ai-summary-streaming">
                 <div class="ai-summary-content markdown-content">
-                  <div class="loading-indicator" style="display: flex; justify-content: center; padding: 20px;">
-                    <div style="width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                  </div>
                   <div id="${message.responseId}" class="streaming-content"></div>
                 </div>
               </div>
@@ -520,7 +517,6 @@ function showLoadingIndicator() {
   loadingDiv.innerHTML = `
     <div class="ai-summary-spinner"></div>
     <p>Generating summary, please wait...</p>
-        <p>Generating summary, please wait...</p>
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
   content.appendChild(loadingDiv);
