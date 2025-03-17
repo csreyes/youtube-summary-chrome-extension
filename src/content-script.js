@@ -82,6 +82,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     message.action === "display_summary"
   ) {
     try {
+      // Check if this is a streaming response
+      if (
+        message.type === "STREAM_CHUNK" ||
+        message.type === "STREAM_COMPLETE" ||
+        message.type === "STREAM_CANCELLED"
+      ) {
+        console.log(
+          `[YouTube AI Summarizer] Received streaming ${message.type} for response ${message.responseId}`
+        );
+
+        // Handle stream chunk
+        if (message.type === "STREAM_CHUNK") {
+          updateStreamingMessage(
+            message.responseId,
+            message.text,
+            message.isAppend
+          );
+          return false;
+        }
+
+        // Handle stream complete
+        if (message.type === "STREAM_COMPLETE") {
+          console.log(
+            "[YouTube AI Summarizer] Stream complete, final message length:",
+            message.text?.length
+          );
+          // We don't need to do anything special here since we've been updating incrementally
+          return false;
+        }
+
+        // Handle stream cancelled
+        if (message.type === "STREAM_CANCELLED") {
+          updateStreamingMessage(
+            message.responseId,
+            " [Message generation stopped]",
+            true
+          );
+          return false;
+        }
+      }
+
       // For debugging different message formats - log the whole message structure
       console.log(
         "[YouTube AI Summarizer] Full message structure:",
@@ -367,6 +408,12 @@ function displaySummaryModal(summary) {
     }
   }
 
+  // Store the conversation history
+  // Initialize conversation history if it doesn't exist yet
+  if (!window.conversationHistory) {
+    window.conversationHistory = [{ role: "assistant", content: summary }];
+  }
+
   // Remove any existing modal
   const existingModal = document.getElementById("ai-summary-modal-container");
   if (existingModal) {
@@ -413,7 +460,7 @@ function displaySummaryModal(summary) {
   header.style.backgroundColor = "#f0f7ff"; // Light blue header
 
   const title = document.createElement("h3");
-  title.textContent = "AI Summary";
+  title.textContent = "AI Summary & Chat";
   title.style.margin = "0";
   title.style.color = "#0066cc";
   title.style.fontSize = "20px";
@@ -439,10 +486,11 @@ function displaySummaryModal(summary) {
   const contentWrapper = document.createElement("div");
   contentWrapper.style.flexGrow = "1";
   contentWrapper.style.overflowY = "auto"; // Allow scrolling for content
-  contentWrapper.style.maxHeight = "calc(85vh - 120px)"; // Account for header and footer
+  contentWrapper.style.maxHeight = "calc(85vh - 180px)"; // Account for header, footer, and chat input
 
   const content = document.createElement("div");
   content.className = "ai-summary-content";
+  content.id = "ai-summary-content";
   // Add some extra styling for better readability
   content.style.lineHeight = "1.6";
   content.style.fontSize = "16px";
@@ -607,19 +655,89 @@ function displaySummaryModal(summary) {
     content.appendChild(errorDiv);
   }
 
+  // Add a separator for chat messages
+  const chatSeparator = document.createElement("div");
+  chatSeparator.style.marginTop = "20px";
+  chatSeparator.style.marginBottom = "10px";
+  chatSeparator.style.borderBottom = "1px solid #e0e0e0";
+  chatSeparator.style.padding = "10px 0";
+  chatSeparator.innerHTML =
+    "<p style='text-align: center; color: #666; margin: 0;'>Ask questions about the video</p>";
+  content.appendChild(chatSeparator);
+
+  // Add chat message container
+  const chatContainer = document.createElement("div");
+  chatContainer.id = "chat-messages-container";
+  chatContainer.style.marginTop = "15px";
+  content.appendChild(chatContainer);
+
   contentWrapper.appendChild(content);
   modal.appendChild(contentWrapper);
+
+  // Add chat input section
+  const chatInputSection = document.createElement("div");
+  chatInputSection.className = "ai-summary-chat-input";
+  chatInputSection.style.borderTop = "1px solid #e0e0e0";
+  chatInputSection.style.padding = "15px 20px";
+  chatInputSection.style.display = "flex";
+  chatInputSection.style.alignItems = "center";
+  chatInputSection.style.backgroundColor = "#f8f8f8";
+  chatInputSection.style.borderBottomLeftRadius = "8px";
+  chatInputSection.style.borderBottomRightRadius = "8px";
+
+  const chatInput = document.createElement("textarea");
+  chatInput.id = "ai-chat-input";
+  chatInput.placeholder = "Ask a question about the video...";
+  chatInput.style.flexGrow = "1";
+  chatInput.style.border = "1px solid #ddd";
+  chatInput.style.borderRadius = "4px";
+  chatInput.style.padding = "10px";
+  chatInput.style.fontSize = "14px";
+  chatInput.style.resize = "none";
+  chatInput.style.minHeight = "40px";
+  chatInput.style.maxHeight = "80px";
+  chatInput.style.fontFamily = "inherit";
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const chatButton = document.getElementById("ai-chat-button");
+      if (chatButton && !chatButton.disabled) {
+        chatButton.click();
+      }
+    }
+  });
+
+  // Auto-resize textarea as user types
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height =
+      (chatInput.scrollHeight > 80 ? 80 : chatInput.scrollHeight) + "px";
+  });
+
+  const chatButton = document.createElement("button");
+  chatButton.id = "ai-chat-button";
+  chatButton.textContent = "Send";
+  chatButton.style.marginLeft = "10px";
+  chatButton.style.backgroundColor = "#0066cc";
+  chatButton.style.color = "white";
+  chatButton.style.border = "none";
+  chatButton.style.borderRadius = "4px";
+  chatButton.style.padding = "10px 20px";
+  chatButton.style.fontSize = "14px";
+  chatButton.style.fontWeight = "500";
+  chatButton.style.cursor = "pointer";
+  chatButton.style.minWidth = "80px";
+  chatButton.addEventListener("click", handleChatSubmit);
+
+  chatInputSection.appendChild(chatInput);
+  chatInputSection.appendChild(chatButton);
+
+  modal.appendChild(chatInputSection);
 
   // Add footer with attribution
   const footer = document.createElement("div");
   footer.className = "ai-summary-footer";
-  footer.style.padding = "12px 20px";
-  footer.style.borderTop = "1px solid #e0e0e0";
-  footer.style.fontSize = "13px";
-  footer.style.color = "#666";
-  footer.style.textAlign = "center";
-  footer.innerHTML =
-    "<p style='margin: 0;'>Powered by YouTube AI Summarizer</p>";
+  footer.innerHTML = "<p>Powered by YouTube AI Summarizer with OpenRouter</p>";
   modal.appendChild(footer);
 
   // Add to DOM
@@ -648,6 +766,158 @@ function displaySummaryModal(summary) {
       document.removeEventListener("keydown", escapeHandler);
     }
   });
+}
+
+// Function to handle chat submission
+async function handleChatSubmit() {
+  const chatInput = document.getElementById("ai-chat-input");
+  const chatButton = document.getElementById("ai-chat-button");
+  const chatContainer = document.getElementById("chat-messages-container");
+
+  if (!chatInput || !chatContainer) return;
+
+  const userMessage = chatInput.value.trim();
+  if (!userMessage) return;
+
+  // Disable input and button
+  chatInput.disabled = true;
+  chatButton.disabled = true;
+  chatButton.textContent = "Sending...";
+
+  // Display user message
+  addChatMessage(userMessage, "user");
+
+  // Add to conversation history
+  if (!window.conversationHistory) {
+    window.conversationHistory = [];
+  }
+  window.conversationHistory.push({ role: "user", content: userMessage });
+
+  // Create streaming response container
+  const responseId = "response-" + Date.now();
+  addChatMessage("", "assistant", responseId);
+
+  try {
+    // Get video metadata for context
+    const videoMetadata = getVideoMetadata();
+
+    // Send request to background script for streaming response
+    await safeSendMessage({
+      type: "CHAT_MESSAGE",
+      payload: {
+        message: userMessage,
+        history: window.conversationHistory,
+        metadata: videoMetadata,
+        responseId: responseId,
+      },
+    });
+
+    console.log(
+      "[YouTube AI Summarizer] Chat message sent, waiting for streaming response"
+    );
+  } catch (error) {
+    console.error("[YouTube AI Summarizer] Error sending chat message:", error);
+    updateStreamingMessage(
+      responseId,
+      "Error: Failed to send message. Please try again."
+    );
+  } finally {
+    // Reset input field
+    chatInput.value = "";
+    chatInput.style.height = "auto";
+
+    // Re-enable input and button
+    chatInput.disabled = false;
+    chatButton.disabled = false;
+    chatButton.textContent = "Send";
+    chatInput.focus();
+  }
+}
+
+// Function to add a chat message to the container
+function addChatMessage(message, role, id = null) {
+  const chatContainer = document.getElementById("chat-messages-container");
+  if (!chatContainer) return;
+
+  const messageElement = document.createElement("div");
+  messageElement.className = "chat-message " + role;
+  if (id) messageElement.id = id;
+
+  // Style based on role
+  messageElement.style.padding = "10px 15px";
+  messageElement.style.marginBottom = "10px";
+  messageElement.style.borderRadius = "8px";
+  messageElement.style.maxWidth = "85%";
+  messageElement.style.wordBreak = "break-word";
+
+  if (role === "user") {
+    messageElement.style.alignSelf = "flex-end";
+    messageElement.style.backgroundColor = "#0066cc";
+    messageElement.style.color = "white";
+    messageElement.style.marginLeft = "auto";
+  } else {
+    messageElement.style.alignSelf = "flex-start";
+    messageElement.style.backgroundColor = "#f0f0f0";
+    messageElement.style.color = "#333";
+  }
+
+  // Parse markdown and process timestamps if it's an assistant message
+  if (role === "assistant" && message) {
+    messageElement.innerHTML = processTimestampsInText(message);
+  } else {
+    messageElement.textContent = message;
+  }
+
+  // Make container flex for alignment
+  chatContainer.style.display = "flex";
+  chatContainer.style.flexDirection = "column";
+
+  chatContainer.appendChild(messageElement);
+
+  // Scroll to the new message
+  const contentWrapper = document.querySelector(".ai-summary-content");
+  if (contentWrapper) {
+    contentWrapper.scrollTop = contentWrapper.scrollHeight;
+  }
+
+  return messageElement;
+}
+
+// Function to update a streaming message with new content
+function updateStreamingMessage(id, content, isAppend = false) {
+  const messageElement = document.getElementById(id);
+  if (!messageElement) return;
+
+  if (isAppend) {
+    // Process timestamps in new content before appending
+    const processedContent = processTimestampsInText(content);
+
+    // Append new content
+    if (messageElement.innerHTML) {
+      messageElement.innerHTML += processedContent;
+    } else {
+      messageElement.innerHTML = processedContent;
+    }
+  } else {
+    // Replace content
+    messageElement.innerHTML = processTimestampsInText(content);
+  }
+
+  // Scroll to ensure visible
+  const contentWrapper = document.querySelector(".ai-summary-content");
+  if (contentWrapper) {
+    contentWrapper.scrollTop = contentWrapper.scrollHeight;
+  }
+
+  // Add to conversation history if complete
+  if (!isAppend && content && !content.startsWith("Error:")) {
+    if (window.conversationHistory) {
+      window.conversationHistory.push({ role: "assistant", content: content });
+    }
+  }
+
+  // Re-attach timestamp handlers
+  attachTimestampClickHandlers();
 }
 
 // Function to detect and enhance timestamps in text

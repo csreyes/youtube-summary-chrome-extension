@@ -5,6 +5,8 @@ document.addEventListener("DOMContentLoaded", function () {
     "Please provide a concise summary of the following YouTube video transcript. Focus on the main points, key insights, and important details. Format the summary in a clear, readable way with paragraphs and bullet points where appropriate.\n\nVideo Title: {{title}}\nChannel: {{channel}}\nTranscript:\n{{transcript}}";
   const defaultApiEndpoint = "https://openrouter.ai/api/v1/chat/completions";
   const defaultModel = "anthropic/claude-3.5-sonnet";
+  const defaultTemperature = 0.7;
+  const defaultEnableChat = true;
 
   // DOM elements
   const apiKeyInput = document.getElementById("apiKey");
@@ -14,6 +16,14 @@ document.addEventListener("DOMContentLoaded", function () {
   const statusMessage = document.getElementById("statusMessage");
   const customModelInput = document.getElementById("custom-model");
   const modelRadios = document.querySelectorAll('input[name="model"]');
+  const temperatureSlider = document.getElementById("temperature");
+  const temperatureValueDisplay = document.getElementById("tempValue");
+  const enableChatToggle = document.getElementById("enableChat");
+
+  // Update temperature value display when slider changes
+  temperatureSlider.addEventListener("input", function () {
+    temperatureValueDisplay.textContent = this.value;
+  });
 
   // Load saved options
   function loadOptions() {
@@ -23,11 +33,16 @@ document.addEventListener("DOMContentLoaded", function () {
         apiEndpoint: defaultApiEndpoint,
         model: defaultModel,
         promptTemplate: defaultPromptTemplate,
+        temperature: defaultTemperature,
+        enableChat: defaultEnableChat,
       },
       function (items) {
         apiKeyInput.value = items.apiKey;
         apiEndpointInput.value = items.apiEndpoint;
         promptTemplateInput.value = items.promptTemplate;
+        temperatureSlider.value = items.temperature;
+        temperatureValueDisplay.textContent = items.temperature;
+        enableChatToggle.checked = items.enableChat;
 
         // Set the selected model radio
         let modelFound = false;
@@ -88,6 +103,8 @@ document.addEventListener("DOMContentLoaded", function () {
         apiEndpoint: apiEndpointInput.value.trim(),
         model: selectedModel,
         promptTemplate: promptTemplateInput.value || defaultPromptTemplate,
+        temperature: parseFloat(temperatureSlider.value),
+        enableChat: enableChatToggle.checked,
       },
       function () {
         showMessage("Options saved successfully!", "success");

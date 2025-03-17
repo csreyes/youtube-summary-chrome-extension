@@ -15,6 +15,9 @@ const DEFAULT_CONFIG = {
 // Track tabs with active content scripts
 const activeContentScriptTabs = new Set();
 
+// Track active streams to enable cancellation
+const activeStreams = new Map();
+
 // For testing - provides a sample summary if no API key is set
 function getTestSummary(videoTitle, channelName, transcriptLength) {
   console.log(
@@ -73,6 +76,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === "CHAT_MESSAGE") {
+    console.log("[YouTube AI Summarizer] Handling chat message request");
+
+    // Handle the chat message with streaming
+    handleChatMessage(message.payload, sender.tab.id).catch((error) =>
+      console.error(
+        "[YouTube AI Summarizer] Error in chat message handler:",
+        error
+      )
+    );
+
+    return false;
+  }
+
+  if (message.type === "CANCEL_STREAM") {
+    console.log("[YouTube AI Summarizer] Handling stream cancellation request");
+
+    const tabStreamKey = `${sender.tab.id}-${message.payload?.responseId}`;
+    if (activeStreams.has(tabStreamKey)) {
+      try {
+        activeStreams.get(tabStreamKey).abort();
+        console.log(`[YouTube AI Summarizer] Stream ${tabStreamKey} cancelled`);
+        activeStreams.delete(tabStreamKey);
+      } catch (err) {
+        console.error(
+          `[YouTube AI Summarizer] Error cancelling stream: ${err.message}`
+        );
+      }
+    }
+
+    return false;
+  }
+
   if (message.type === "CONTENT_SCRIPT_READY" && sender.tab) {
     console.log(
       "[YouTube AI Summarizer] Content script ready in tab",
@@ -127,6 +163,226 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     activeContentScriptTabs.delete(tabId);
   }
 });
+
+// Handle chat messages with streaming responses
+async function handleChatMessage(payload, tabId) {
+  console.log(`[Background] Processing chat message request for tab ${tabId}`);
+
+  try {
+    // Get the API key and endpoint from storage
+    const { apiKey, apiEndpoint, model, temperature } = await getConfig();
+
+    if (!apiKey) {
+      console.error("[Background] API key not configured");
+      await safeSendTabMessage(tabId, {
+        action: "display_summary",
+        type: "STREAM_CHUNK",
+        responseId: payload.responseId,
+        text: "Error: Please configure your API key in the extension options",
+      });
+      return;
+    }
+
+    // Create transcriptContext from the conversation history
+    let transcriptContext = "";
+    if (payload.history && payload.history.length > 0) {
+      // Find the first assistant message, which should be the summary
+      const summaryMessage = payload.history.find(
+        (msg) => msg.role === "assistant"
+      );
+      if (summaryMessage) {
+        // Extract the first 500 characters to provide context without making the prompt too long
+        transcriptContext = summaryMessage.content.substring(0, 500) + "...";
+      }
+    }
+
+    // Prepare the conversation history
+    // Filter out the initial summary message to keep context more focused on the conversation
+    const chatHistory = payload.history
+      ? payload.history.filter(
+          (msg, index) => !(msg.role === "assistant" && index === 0)
+        )
+      : [];
+
+    // Add system message as the first message
+    const messages = [
+      {
+        role: "system",
+        content: `You are a helpful assistant that answers questions about YouTube videos. 
+You have access to the transcript summary of the video "${payload.metadata?.title}" by ${payload.metadata?.channel}.
+
+Here is a brief excerpt from the transcript summary to help you understand what the video is about:
+${transcriptContext}
+
+Be helpful, accurate, and conversational. If asked about timestamps or specific parts of the video, try to include any relevant timestamps from the summary in your response. The timestamps in the transcript are in the format MM:SS or HH:MM:SS and can be important for reference.
+
+If you don't know the answer to a question based on the transcript or summary provided, be honest and say you don't have that information rather than making up an answer.`,
+      },
+    ];
+
+    // Add existing conversation history
+    messages.push(...chatHistory);
+
+    // Create controller for stream cancellation
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    // Store the controller for potential cancellation
+    const tabStreamKey = `${tabId}-${payload.responseId}`;
+    activeStreams.set(tabStreamKey, controller);
+
+    // Make streaming request to OpenRouter
+    console.log("[Background] Making streaming request to OpenRouter API");
+    const response = await fetch(apiEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey.trim().replace(/"/g, "")}`,
+        "HTTP-Referer": "https://youtube-summarizer-extension.com", // Required by OpenRouter
+        "X-Title": "YouTube AI Summarizer", // Required by OpenRouter
+      },
+      body: JSON.stringify({
+        model: model || "anthropic/claude-3.5-sonnet",
+        messages: messages,
+        temperature: temperature || 0.7,
+        stream: true, // Enable streaming
+      }),
+      signal: signal, // For cancellation
+    });
+
+    if (!response.ok) {
+      let errorMsg = `API request failed: ${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMsg += ` - ${
+          errorData.error?.message || JSON.stringify(errorData)
+        }`;
+      } catch (e) {
+        // Ignore JSON parsing errors
+      }
+
+      console.error("[Background] API request failed:", errorMsg);
+
+      await safeSendTabMessage(tabId, {
+        action: "display_summary",
+        type: "STREAM_CHUNK",
+        responseId: payload.responseId,
+        text: `Error: ${errorMsg}`,
+      });
+
+      return;
+    }
+
+    // Process the stream
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let fullResponse = "";
+
+    console.log("[Background] Processing streaming response");
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log("[Background] Stream complete");
+          break;
+        }
+
+        // Decode the chunk
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+
+        // Process complete lines from buffer
+        let lines = buffer.split("\n");
+        buffer = lines.pop(); // Keep the last incomplete line in the buffer
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || trimmedLine === "") continue;
+
+          if (trimmedLine.startsWith("data: ")) {
+            const data = trimmedLine.slice(6);
+
+            // Check for end of stream
+            if (data === "[DONE]") {
+              console.log("[Background] Stream end marker received");
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices[0]?.delta?.content;
+
+              if (content) {
+                // Send the content chunk to the content script
+                await safeSendTabMessage(tabId, {
+                  action: "display_summary",
+                  type: "STREAM_CHUNK",
+                  responseId: payload.responseId,
+                  text: content,
+                  isAppend: true,
+                });
+
+                // Add to full response
+                fullResponse += content;
+              }
+            } catch (e) {
+              console.log(
+                "[Background] Error parsing JSON from stream:",
+                e.message
+              );
+              // Skip any invalid JSON - could be comment lines from SSE
+            }
+          }
+        }
+      }
+
+      // Send the full response as a final message in case we need it later
+      await safeSendTabMessage(tabId, {
+        action: "display_summary",
+        type: "STREAM_COMPLETE",
+        responseId: payload.responseId,
+        text: fullResponse,
+      });
+    } catch (error) {
+      // Check if this was an abort error from cancellation
+      if (error.name === "AbortError") {
+        console.log("[Background] Stream was cancelled");
+
+        await safeSendTabMessage(tabId, {
+          action: "display_summary",
+          type: "STREAM_CANCELLED",
+          responseId: payload.responseId,
+        });
+      } else {
+        // Some other error occurred during streaming
+        console.error("[Background] Error during streaming:", error);
+
+        await safeSendTabMessage(tabId, {
+          action: "display_summary",
+          type: "STREAM_CHUNK",
+          responseId: payload.responseId,
+          text: `Error during streaming: ${error.message}`,
+        });
+      }
+    } finally {
+      // Clean up the stream reference
+      if (activeStreams.has(tabStreamKey)) {
+        activeStreams.delete(tabStreamKey);
+      }
+    }
+  } catch (error) {
+    console.error("[Background] Error in chat handler:", error);
+
+    await safeSendTabMessage(tabId, {
+      action: "display_summary",
+      type: "STREAM_CHUNK",
+      responseId: payload.responseId,
+      text: `Error: ${error.message || "Unknown error occurred"}`,
+    });
+  }
+}
 
 // Handle summarize requests by getting user config and calling the API
 async function handleSummarizeRequest(payload, tabId) {

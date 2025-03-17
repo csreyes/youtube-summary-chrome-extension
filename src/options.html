@@ -123,6 +123,76 @@
       border-radius: 3px;
       font-family: monospace;
     }
+    
+    .api-info {
+      background-color: #e6f4ff;
+      border: 1px solid #b3d9ff;
+      border-radius: 4px;
+      padding: 12px;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    
+    .api-info a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+    
+    .api-info a:hover {
+      text-decoration: underline;
+    }
+    
+    .toggle-section {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+      margin-right: 10px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 24px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .toggle-slider {
+      background-color: #0066cc;
+    }
+    
+    input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
 
     @media (prefers-color-scheme: dark) {
       body {
@@ -165,6 +235,16 @@
         background-color: #444;
         color: #e0e0e0;
       }
+      
+      .api-info {
+        background-color: #2a3b4d;
+        border-color: #375a7f;
+        color: #e0e0e0;
+      }
+      
+      .api-info a {
+        color: #5e9eff;
+      }
     }
   </style>
 </head>
@@ -175,14 +255,25 @@
     <h2>API Settings</h2>
     
     <div class="form-group">
-      <label for="apiKey">API Key:</label>
-      <input type="password" id="apiKey" placeholder="Enter your API key">
-      <p class="help-text">Your API key is stored locally on your device and is not sent anywhere besides the chosen API service.</p>
+      <label for="apiKey">OpenRouter API Key:</label>
+      <input type="password" id="apiKey" placeholder="Enter your OpenRouter API key">
+      <p class="help-text">Your API key is stored locally on your device and is not sent anywhere besides OpenRouter.</p>
+      <div class="api-info">
+        <p><strong>About OpenRouter:</strong> This extension uses OpenRouter to access various AI models for summarization and chat.</p>
+        <p>To get an API key:</p>
+        <ol>
+          <li>Go to <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></li>
+          <li>Sign up or log in</li>
+          <li>Create a new API key</li>
+          <li>Copy and paste the key here</li>
+        </ol>
+        <p>OpenRouter offers free credits for testing, and affordable pay-as-you-go for continued use.</p>
+      </div>
     </div>
     
     <div class="form-group">
       <label for="apiEndpoint">API Endpoint:</label>
-      <input type="text" id="apiEndpoint" placeholder="https://api.openai.com/v1/chat/completions">
+      <input type="text" id="apiEndpoint" placeholder="https://openrouter.ai/api/v1/chat/completions">
     </div>
     
     <div class="form-group">
@@ -204,15 +295,23 @@
         <label for="model-other">Other:</label>
         <input type="text" id="custom-model" placeholder="Enter model name" style="width: 200px; margin-left: 8px;">
       </div>
-      <p class="help-text">Using OpenRouter to access various AI models. See the <a href="https://openrouter.ai/docs" target="_blank">OpenRouter documentation</a> for available models.</p>
+      <p class="help-text">See the <a href="https://openrouter.ai/docs" target="_blank">OpenRouter documentation</a> for available models.</p>
     </div>
   </div>
   
   <div class="options-section">
-    <h2>Summary Settings</h2>
+    <h2>Chat & Summary Settings</h2>
+    
+    <div class="toggle-section">
+      <label class="toggle-switch">
+        <input type="checkbox" id="enableChat" checked>
+        <span class="toggle-slider"></span>
+      </label>
+      <label for="enableChat">Enable chat interface (allows asking questions about the video)</label>
+    </div>
     
     <div class="form-group">
-      <label for="promptTemplate">Prompt Template:</label>
+      <label for="promptTemplate">Summary Prompt Template:</label>
       <textarea id="promptTemplate" rows="5"></textarea>
       <div class="template-variables">
         <p>Available variables:</p>
@@ -223,6 +322,17 @@
           <li><code>{{url}}</code> - The video URL</li>
         </ul>
       </div>
+    </div>
+    
+    <div class="form-group">
+      <label for="temperature">Response Temperature:</label>
+      <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+      <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+        <span>0 (More focused)</span>
+        <span id="tempValue">0.7</span>
+        <span>1 (More creative)</span>
+      </div>
+      <p class="help-text">Controls the randomness of the AI's responses. Lower values produce more focused and deterministic responses.</p>
     </div>
   </div>
   
