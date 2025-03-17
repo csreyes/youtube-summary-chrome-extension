@@ -153,7 +153,7 @@ function showLoadingIndicator() {
   loadingDiv.className = "ai-summary-loading";
   loadingDiv.innerHTML = `
     <div class="ai-summary-spinner"></div>
-    <p>Generating summary, please wait...</p>
+    <p>Generating summary, please wait...testing</p>
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
   content.appendChild(loadingDiv);

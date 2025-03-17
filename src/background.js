@@ -1,7 +1,7 @@
 // background.js (Service Worker)
 
 // Add debugging
-console.log("[YouTube AI Summarizer] Background service worker started");
+console.log("[YouTube AI Summarizer] Background service worker started: test");
 
 // Default configuration
 const DEFAULT_CONFIG = {
