@@ -1,0 +1,254 @@
+/* YouTube Summarizer Extension Styles */
+
+/* Button styles */
+.youtube-ai-summarizer-container {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.youtube-ai-summarizer-button {
+  background-color: #cc0000;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.2s;
+  font-family: 'Roboto', sans-serif;
+}
+
+.youtube-ai-summarizer-button:hover {
+  background-color: #990000;
+}
+
+.youtube-ai-summarizer-button:disabled {
+  background-color: #888;
+  cursor: not-allowed;
+}
+
+/* Modal overlay */
+.ai-summary-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Modal container */
+.ai-summary-modal {
+  background-color: #fff;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease-out;
+  color: #0f0f0f;
+  font-family: 'Roboto', 'Arial', sans-serif;
+}
+
+/* Modal header */
+.ai-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.ai-summary-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #0f0f0f;
+}
+
+.ai-summary-close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #606060;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.ai-summary-close-btn:hover {
+  background-color: #f0f0f0;
+}
+
+/* Modal content */
+.ai-summary-content {
+  padding: 20px;
+  overflow-y: auto;
+  line-height: 1.5;
+  flex: 1;
+}
+
+/* Error message */
+.ai-summary-error {
+  color: #cc0000;
+  font-weight: bold;
+  padding: 10px;
+  border: 1px solid #ffcccc;
+  background-color: #fff6f6;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+/* Loading spinner */
+.ai-summary-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.ai-summary-loading p {
+  margin-top: 16px;
+  color: #606060;
+  font-size: 16px;
+}
+
+.ai-summary-loading-info {
+  font-size: 13px !important;
+  opacity: 0.7;
+  margin-top: 6px !important;
+}
+
+.ai-summary-spinner {
+  display: inline-block;
+  width: 50px;
+  height: 50px;
+  border: 5px solid rgba(204, 0, 0, 0.2);
+  border-radius: 50%;
+  border-top-color: #cc0000;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Key points section */
+.ai-summary-key-points {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.ai-summary-key-points h4 {
+  font-weight: 500;
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #0f0f0f;
+}
+
+.ai-summary-key-points ul {
+  margin: 0;
+  padding-left: 24px;
+}
+
+.ai-summary-key-points li {
+  margin-bottom: 8px;
+}
+
+/* Footer */
+.ai-summary-footer {
+  border-top: 1px solid #e0e0e0;
+  padding: 12px 20px;
+  font-size: 12px;
+  color: #606060;
+  text-align: center;
+}
+
+.ai-summary-footer p {
+  margin: 0;
+}
+
+/* Section styling */
+.ai-summary-section {
+  margin-bottom: 16px;
+}
+
+.ai-summary-section:last-child {
+  margin-bottom: 0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  .ai-summary-modal {
+    background-color: #212121;
+    color: #fff;
+  }
+  
+  .ai-summary-header {
+    border-bottom: 1px solid #333;
+  }
+  
+  .ai-summary-header h3 {
+    color: #fff;
+  }
+  
+  .ai-summary-close-btn {
+    color: #aaa;
+  }
+  
+  .ai-summary-close-btn:hover {
+    background-color: #333;
+  }
+
+  .ai-summary-error {
+    background-color: rgba(204, 0, 0, 0.1);
+    color: #ff6666;
+    border-color: #662222;
+  }
+  
+  .ai-summary-loading p {
+    color: #aaa;
+  }
+  
+  .ai-summary-key-points {
+    border-top: 1px solid #333;
+  }
+  
+  .ai-summary-key-points h4 {
+    color: #fff;
+  }
+  
+  .ai-summary-footer {
+    border-top: 1px solid #333;
+    color: #aaa;
+  }
+} 

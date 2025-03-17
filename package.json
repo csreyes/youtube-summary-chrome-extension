@@ -1,0 +1,32 @@
+{
+  "name": "youtube-summarizer-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension to summarize YouTube video transcripts using AI",
+  "private": true,
+  "scripts": {
+    "build": "webpack --config webpack.config.js",
+    "dev": "webpack --watch --config webpack.config.js",
+    "clean": "rimraf dist",
+    "package": "npm run build && cd dist && zip -r ../youtube-summarizer.zip .",
+    "create-icons": "node create-icons.js",
+    "start": "npm run create-icons && npm run build",
+    "debug": "node debug.js",
+    "rebuild": "npm run clean && npm run build && node debug.js",
+    "watch": "npm run clean && webpack --watch --config webpack.config.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.22.5",
+    "@babel/preset-env": "^7.22.5",
+    "babel-loader": "^9.1.2",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "dotenv-webpack": "^8.1.0",
+    "html-webpack-plugin": "^5.5.3",
+    "mini-css-extract-plugin": "^2.7.6",
+    "rimraf": "^5.0.1",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
