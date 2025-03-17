@@ -8,6 +8,8 @@ console.log("[YouTube AI Summarizer] Content script loaded");
 let isInitialized = false;
 // Track if a summary request is in progress
 let isSummaryInProgress = false;
+// Track if we've added the related videos button
+let relatedVideoButtonAdded = false;
 
 // Define isVideoPage function outside IIFE so it's available to all message handlers
 function isVideoPage() {
@@ -40,6 +42,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(
       "[YouTube AI Summarizer] Received summary result with length:",
       message.summary?.length || 0
+    );
+
+    // Enhanced logging for LLM response
+    console.log(
+      "[YouTube AI Summarizer] LLM response received, first 200 chars:",
+      message.summary?.substring(0, 200) || "No summary"
     );
 
     // Hide loading indicator if it exists
@@ -153,7 +161,7 @@ function showLoadingIndicator() {
   loadingDiv.className = "ai-summary-loading";
   loadingDiv.innerHTML = `
     <div class="ai-summary-spinner"></div>
-    <p>Generating summary, please wait...testing</p>
+    <p>Generating summary, please wait...</p>
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
   content.appendChild(loadingDiv);
@@ -236,6 +244,40 @@ function displaySummaryModal(summary) {
     "[YouTube AI Summarizer] Displaying summary modal, content length:",
     summary?.length || 0
   );
+
+  // Log additional details about the summary for debugging
+  if (summary) {
+    console.log(
+      "[YouTube AI Summarizer] Summary type:",
+      typeof summary,
+      "Is object?",
+      typeof summary === "object" && summary !== null
+    );
+
+    if (typeof summary === "string") {
+      // Log structure info about string summary
+      const hasMarkdown = summary.includes("#") || summary.includes("-");
+      const paragraphCount = summary.split("\n\n").length;
+      console.log(
+        "[YouTube AI Summarizer] Summary details: Has markdown?",
+        hasMarkdown,
+        "Paragraph count:",
+        paragraphCount,
+        "First 100 chars:",
+        summary.substring(0, 100)
+      );
+    } else if (summary && typeof summary === "object") {
+      // Log structure of object summary
+      console.log(
+        "[YouTube AI Summarizer] Summary object keys:",
+        Object.keys(summary),
+        "Has HTML?",
+        !!summary.html,
+        "Has key points?",
+        Array.isArray(summary.keyPoints) && summary.keyPoints.length > 0
+      );
+    }
+  }
 
   // Remove any existing modal
   const existingModal = document.getElementById("ai-summary-modal-container");
@@ -404,10 +446,16 @@ function displaySummaryModal(summary) {
   async function findTranscriptButton() {
     console.log("[YouTube AI Summarizer] Looking for transcript button");
 
-    // First try to find the transcript button directly
-    const transcriptButtons = Array.from(
-      document.querySelectorAll("button")
-    ).filter((button) => {
+    // First try to find the transcript button directly by text content
+    const allButtons = Array.from(document.querySelectorAll("button"));
+    console.log(
+      "[YouTube AI Summarizer] Found",
+      allButtons.length,
+      "buttons on the page"
+    );
+
+    // Try to find direct transcript button first
+    const transcriptButtons = allButtons.filter((button) => {
       const text = button.textContent?.toLowerCase() || "";
       const ariaLabel = button.getAttribute("aria-label")?.toLowerCase() || "";
       return text.includes("transcript") || ariaLabel.includes("transcript");
@@ -415,125 +463,100 @@ function displaySummaryModal(summary) {
 
     if (transcriptButtons.length > 0) {
       console.log(
-        "[YouTube AI Summarizer] Found transcript button directly",
-        transcriptButtons[0]
+        "[YouTube AI Summarizer] Found transcript button directly:",
+        transcriptButtons[0].textContent ||
+          transcriptButtons[0].getAttribute("aria-label") ||
+          "unnamed button"
       );
       return transcriptButtons[0];
     }
 
-    // Try to find the three dots menu button - using much more specific selectors
-    console.log("[YouTube AI Summarizer] Looking for three dots menu");
+    // If no direct transcript button, look for the dropdown menu (three dots) and open it
+    console.log(
+      "[YouTube AI Summarizer] No direct transcript button, looking for three dots menu"
+    );
 
-    // Explicitly exclude Skip navigation buttons
-    const buttons = Array.from(
-      document.querySelectorAll(
-        'button[aria-label="More actions"], ' +
-          "ytd-menu-renderer button, " +
-          "button.yt-spec-button-shape-next, " +
-          ".dropdown-trigger button"
-      )
-    ).filter((button) => {
+    // Improved three dots menu detection
+    const menuButtons = allButtons.filter((button) => {
       const ariaLabel = (button.getAttribute("aria-label") || "").toLowerCase();
-      // Explicitly exclude skip navigation buttons or anything not related to actions menu
       return (
-        !ariaLabel.includes("skip") &&
-        !ariaLabel.includes("navigation") &&
-        !ariaLabel.includes("keyboard") &&
-        !ariaLabel.includes("accessibility")
+        ariaLabel.includes("more") ||
+        ariaLabel.includes("action") ||
+        (button.textContent || "").includes("...") ||
+        button.innerHTML.includes("ellipsis") ||
+        button.closest('[aria-label*="more"]') !== null
       );
     });
 
-    // Find the most likely three dots button by looking for visual indicators
-    let threeDotsButton = null;
-
-    // First try buttons actually labeled "More actions"
-    threeDotsButton = buttons.find((btn) =>
-      (btn.getAttribute("aria-label") || "")
-        .toLowerCase()
-        .includes("more actions")
+    console.log(
+      "[YouTube AI Summarizer] Found",
+      menuButtons.length,
+      "potential menu buttons"
     );
 
-    if (!threeDotsButton) {
-      // Look for buttons with ellipsis content or specific location
-      threeDotsButton = buttons.find((btn) => {
-        const innerHTML = btn.innerHTML;
-        const text = btn.textContent || "";
-
-        // Check for visual indicators of three dots menu
-        return (
-          text.includes("...") ||
-          text.includes("…") ||
-          innerHTML.includes("<path") ||
-          btn.closest("ytd-menu-renderer") !== null
-        );
-      });
-    }
-
-    if (threeDotsButton) {
+    // Try to use the first menu button we find
+    if (menuButtons.length > 0) {
+      const threeDotsButton = menuButtons[0];
       console.log(
-        "[YouTube AI Summarizer] Found three dots menu button:",
-        threeDotsButton
-      );
-      console.log(
-        "[YouTube AI Summarizer] Button aria-label:",
-        threeDotsButton.getAttribute("aria-label")
-      );
-      console.log(
-        "[YouTube AI Summarizer] Button text content:",
-        threeDotsButton.textContent
+        "[YouTube AI Summarizer] Clicking three dots menu button:",
+        threeDotsButton.getAttribute("aria-label") ||
+          threeDotsButton.textContent ||
+          "unnamed button"
       );
 
-      // Click the button
+      // Click to open the menu
       threeDotsButton.click();
 
-      // Wait longer for menu to appear
+      // Wait for menu to appear (increased delay for reliability)
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Look for transcript option in dropdown with broader selectors
-      const dropdownMenuItems = document.querySelectorAll(
+      // Look for transcript option in the dropdown menu with various selectors
+      const menuItems = document.querySelectorAll(
         "ytd-menu-service-item-renderer, " +
-          ".ytp-panel-menu .ytp-menuitem, " +
           "tp-yt-paper-item, " +
+          ".ytp-menuitem, " +
+          ".ytd-menu-popup-renderer tp-yt-paper-item, " +
+          ".yt-spec-menu-item, " +
           "ytd-menu-navigation-item-renderer, " +
-          ".yt-spec-menu-item"
+          "div[role='menuitem']"
       );
 
       console.log(
-        "[YouTube AI Summarizer] Found dropdown items:",
-        dropdownMenuItems.length
+        "[YouTube AI Summarizer] Found",
+        menuItems.length,
+        "menu items"
       );
 
-      // Debug - log all menu items
-      dropdownMenuItems.forEach((item, i) => {
+      // Log all menu items for debugging
+      menuItems.forEach((item, i) => {
         console.log(
           `[YouTube AI Summarizer] Menu item ${i}:`,
-          item.textContent
+          item.textContent?.trim() || "unnamed item"
         );
       });
 
-      for (const item of dropdownMenuItems) {
+      // Find and click the transcript option
+      for (const item of menuItems) {
         const itemText = item.textContent?.toLowerCase() || "";
         if (itemText.includes("transcript")) {
           console.log(
-            "[YouTube AI Summarizer] Found and clicking transcript option in dropdown",
-            item
+            "[YouTube AI Summarizer] Found transcript option in dropdown:",
+            itemText
           );
-          item.click();
-          return true;
+
+          // This is our transcript button
+          return item;
         }
       }
 
-      // If transcript option not found, click again to close the menu
+      // If we couldn't find transcript option, close the menu
+      console.log(
+        "[YouTube AI Summarizer] No transcript option found in dropdown, closing menu"
+      );
       threeDotsButton.click();
-      console.log(
-        "[YouTube AI Summarizer] No transcript option found in dropdown menu"
-      );
-    } else {
-      console.log(
-        "[YouTube AI Summarizer] Could not find three dots menu button"
-      );
     }
 
+    console.log("[YouTube AI Summarizer] Could not find transcript button");
     return null;
   }
 
@@ -587,68 +610,85 @@ function displaySummaryModal(summary) {
     }
   }
 
-  // Function to ensure transcript is visible before extracting
-  async function ensureTranscriptVisible() {
-    const transcriptButton = findTranscriptButton();
-    if (!transcriptButton) {
-      throw new Error("Transcript button not found");
+  // Function to insert a "Summarize Video" button above related videos section
+  function insertRelatedVideosSummarizeButton() {
+    // Don't add if already exists or not on a video page
+    if (relatedVideoButtonAdded || !isVideoPage()) {
+      return;
     }
 
-    // Check if transcript is already open
-    const transcriptPanel =
-      document.querySelector("ytd-transcript-renderer") ||
-      document.querySelector('[role="dialog"]:has(ytd-transcript-renderer)') ||
-      document.querySelector(
-        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
-      ) ||
-      document.querySelector(
-        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
-      );
+    console.log(
+      "[YouTube AI Summarizer] Looking for related videos section to add button"
+    );
 
-    if (!transcriptPanel) {
-      // Click the transcript button to open it
-      console.log(
-        "[YouTube AI Summarizer] Clicking transcript button to open panel"
-      );
-      transcriptButton.click();
+    // Look for the related videos section (different possible selectors for robustness)
+    const relatedSection =
+      document.querySelector("#related") ||
+      document.querySelector("ytd-watch-next-secondary-results-renderer") ||
+      document.querySelector("#secondary");
 
-      // Wait for transcript to appear
-      await new Promise((resolve, reject) => {
-        let attempts = 0;
-        const checkInterval = setInterval(() => {
-          const panel =
-            document.querySelector("ytd-transcript-renderer") ||
-            document.querySelector(
-              '[role="dialog"]:has(ytd-transcript-renderer)'
-            ) ||
-            document.querySelector(
-              'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
-            ) ||
-            document.querySelector(
-              'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
-            );
-
-          if (panel) {
-            console.log("[YouTube AI Summarizer] Transcript panel appeared");
-            clearInterval(checkInterval);
-            // Add a small delay to ensure content is loaded
-            setTimeout(resolve, 1000); // Increased to 1 second for better content loading
-          } else if (attempts++ > 15) {
-            // Increased timeout to 7.5 seconds
-            clearInterval(checkInterval);
-            reject(new Error("Transcript failed to open"));
-          }
-        }, 500);
-      });
-    } else {
-      console.log("[YouTube AI Summarizer] Transcript panel already open");
+    if (!relatedSection) {
+      console.log("[YouTube AI Summarizer] Related videos section not found");
+      return;
     }
+
+    console.log(
+      "[YouTube AI Summarizer] Found related videos section, adding summarize button"
+    );
+
+    // Create a container for our button
+    const container = document.createElement("div");
+    container.className = "youtube-ai-summarizer-related-container";
+    container.style.padding = "12px";
+    container.style.marginBottom = "12px";
+    container.style.textAlign = "center";
+    // Make sure the container is full width
+    container.style.width = "100%";
+
+    // Create the button
+    const button = document.createElement("button");
+    button.id = "summarize-related-btn";
+    button.className = "youtube-ai-summarizer-button";
+    button.textContent = "Summarize Video";
+    // Make button full width
+    button.style.width = "100%";
+    button.style.padding = "10px 16px";
+    button.style.backgroundColor = "#cc0000";
+    button.style.color = "white";
+    button.style.border = "none";
+    button.style.borderRadius = "2px";
+    button.style.fontWeight = "500";
+    button.style.cursor = "pointer";
+
+    // Add hover effect
+    button.addEventListener("mouseover", () => {
+      button.style.backgroundColor = "#aa0000";
+    });
+    button.addEventListener("mouseout", () => {
+      button.style.backgroundColor = "#cc0000";
+    });
+
+    // Add click handler
+    button.addEventListener("click", handleSummarizeClick);
+
+    // Add button to container
+    container.appendChild(button);
+
+    // Insert at the beginning of related section
+    relatedSection.insertBefore(container, relatedSection.firstChild);
+    relatedVideoButtonAdded = true;
+
+    console.log(
+      "[YouTube AI Summarizer] Successfully added summarize button above related videos"
+    );
   }
 
   // Enhance getTranscriptText to better find and extract transcript segments
   async function getTranscriptText() {
     try {
       console.log("[YouTube AI Summarizer] Extracting transcript text");
+      // Initialize transcriptText to empty string at the beginning to avoid "not defined" errors
+      let transcriptText = "";
 
       // First, try to get transcript from any ytd-transcript-segment-renderer elements
       // Using more explicit class names and attributes
@@ -664,7 +704,6 @@ function displaySummaryModal(summary) {
           transcriptSegments.length
         );
 
-        let transcriptText = "";
         let hasContent = false;
 
         transcriptSegments.forEach((segment, i) => {
@@ -716,6 +755,13 @@ function displaySummaryModal(summary) {
             "[YouTube AI Summarizer] Successfully extracted transcript from segments. First 100 chars:",
             transcriptText.substring(0, 100)
           );
+
+          // Enhanced logging - log the full transcript for debugging
+          console.log(
+            "[YouTube AI Summarizer] Full transcript (before sending to LLM):",
+            transcriptText
+          );
+
           return transcriptText.trim();
         }
       } else {
@@ -738,7 +784,6 @@ function displaySummaryModal(summary) {
           formattedStringSegments.length
         );
 
-        let transcriptText = "";
         formattedStringSegments.forEach((segment, i) => {
           // Find the closest parent that might contain the timestamp
           const parentSegment =
@@ -800,7 +845,6 @@ function displaySummaryModal(summary) {
         );
 
         if (segmentContainers.length > 0) {
-          let transcriptText = "";
           segmentContainers.forEach((container, i) => {
             const text = container.textContent?.trim();
             if (text && text.length > 0) {
@@ -840,8 +884,17 @@ function displaySummaryModal(summary) {
         }
       }
 
-      // Continue with existing fallback methods
-      // ... existing code ...
+      // Additional logging for all other transcript extraction methods
+      if (transcriptText && transcriptText.length > 100) {
+        console.log(
+          "[YouTube AI Summarizer] Full transcript (before sending to LLM):",
+          transcriptText
+        );
+      }
+
+      if (transcriptText.length > 0) {
+        return transcriptText.trim();
+      }
 
       console.error(
         "[YouTube AI Summarizer] Failed to extract transcript text"
@@ -851,6 +904,73 @@ function displaySummaryModal(summary) {
       console.error("[YouTube AI Summarizer] Error extracting transcript:", e);
       throw e;
     }
+  }
+
+  // Function to ensure transcript is visible before extracting
+  async function ensureTranscriptVisible() {
+    console.log("[YouTube AI Summarizer] Ensuring transcript is visible");
+
+    // First check if transcript is already open
+    const transcriptPanel =
+      document.querySelector("ytd-transcript-renderer") ||
+      document.querySelector('[role="dialog"]:has(ytd-transcript-renderer)') ||
+      document.querySelector(
+        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
+      ) ||
+      document.querySelector(
+        'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
+      );
+
+    if (transcriptPanel) {
+      console.log("[YouTube AI Summarizer] Transcript panel already open");
+      return;
+    }
+
+    // Find the transcript button
+    const transcriptButton = await findTranscriptButton();
+    if (!transcriptButton) {
+      console.error("[YouTube AI Summarizer] Transcript button not found");
+      throw new Error("Transcript button not found");
+    }
+
+    // Click the transcript button to open it
+    console.log(
+      "[YouTube AI Summarizer] Clicking transcript button to open panel"
+    );
+    transcriptButton.click();
+
+    // Wait for transcript to appear with improved waiting mechanism
+    await new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 20; // Increased for better reliability
+      const checkInterval = setInterval(() => {
+        const panel =
+          document.querySelector("ytd-transcript-renderer") ||
+          document.querySelector(
+            '[role="dialog"]:has(ytd-transcript-renderer)'
+          ) ||
+          document.querySelector(
+            'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
+          ) ||
+          document.querySelector(
+            'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-transcript"]'
+          );
+
+        if (panel) {
+          console.log("[YouTube AI Summarizer] Transcript panel appeared");
+          clearInterval(checkInterval);
+          // Add a longer delay to ensure content is fully loaded
+          setTimeout(resolve, 1500); // Increased to 1.5 seconds for better content loading
+        } else if (attempts++ > maxAttempts) {
+          // Increased timeout
+          clearInterval(checkInterval);
+          console.error(
+            "[YouTube AI Summarizer] Transcript failed to open after multiple attempts"
+          );
+          reject(new Error("Transcript failed to open"));
+        }
+      }, 500);
+    });
   }
 
   // Function to extract video metadata
@@ -880,30 +1000,81 @@ function displaySummaryModal(summary) {
 
     try {
       isProcessing = true;
+      console.log("[YouTube AI Summarizer] Starting summarization process");
 
+      // Update button states if applicable
       if (summarizeButton) {
         summarizeButton.textContent = config.buttonLoadingText;
         summarizeButton.disabled = true;
       }
 
-      // First, ensure transcript is visible
+      // Show loading indicator first so user gets immediate feedback
+      showLoadingIndicator();
+
+      // First, ensure transcript is visible - this is the key part that needs to be more reliable
       try {
+        console.log(
+          "[YouTube AI Summarizer] Attempting to open transcript panel"
+        );
+
+        // Find the transcript button
+        const transcriptButton = await findTranscriptButton();
+        if (!transcriptButton) {
+          throw new Error("Could not find transcript button");
+        }
+
+        console.log(
+          "[YouTube AI Summarizer] Found transcript button, clicking it"
+        );
+        // Click the transcript button to show transcript
+        transcriptButton.click();
+
+        // Wait a moment for the transcript to appear
+        console.log(
+          "[YouTube AI Summarizer] Waiting for transcript panel to appear"
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        // Ensure transcript is fully loaded
         await ensureTranscriptVisible();
+        console.log(
+          "[YouTube AI Summarizer] Transcript panel opened successfully"
+        );
       } catch (transcriptError) {
         console.error(
           "[YouTube AI Summarizer] Transcript visibility error:",
           transcriptError
         );
-        // Continue - we'll try other methods to extract transcript
+        // Don't give up yet - we'll try other methods to extract transcript
       }
+
+      // Additional delay to ensure transcript is fully loaded
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Get transcript text
       let transcriptText;
       try {
+        console.log("[YouTube AI Summarizer] Starting transcript extraction");
         transcriptText = await getTranscriptText();
-        if (!transcriptText) {
-          throw new Error("Could not extract transcript");
+
+        if (!transcriptText || transcriptText.length < 50) {
+          console.error(
+            "[YouTube AI Summarizer] Extracted transcript too short or empty:",
+            transcriptText
+          );
+          throw new Error("Extracted transcript is too short or empty");
         }
+
+        console.log(
+          "[YouTube AI Summarizer] Transcript extraction successful, length:",
+          transcriptText.length
+        );
+
+        // Log the first 500 characters of transcript for debugging
+        console.log(
+          "[YouTube AI Summarizer] Transcript beginning (first 500 chars):",
+          transcriptText.substring(0, 500)
+        );
       } catch (extractError) {
         console.error(
           "[YouTube AI Summarizer] Transcript extraction error:",
@@ -919,17 +1090,27 @@ function displaySummaryModal(summary) {
           3. Try refreshing the page`
         );
         isSummaryInProgress = false;
+
+        // Reset button states
+        if (summarizeButton) {
+          summarizeButton.textContent = config.buttonText;
+          summarizeButton.disabled = false;
+        }
+
         return;
       }
 
       // Get video metadata for context
       const videoMetadata = getVideoMetadata();
+      console.log("[YouTube AI Summarizer] Video metadata:", videoMetadata);
 
       // Send to background script for processing
       console.log(
         "[YouTube AI Summarizer] Sending transcript to background script for summarization, transcript length:",
         transcriptText?.length || 0
       );
+
+      console.log("[YouTube AI Summarizer] Initiating LLM request");
       await safeSendMessage({
         type: "SUMMARIZE",
         payload: {
@@ -937,8 +1118,11 @@ function displaySummaryModal(summary) {
           metadata: videoMetadata,
         },
       });
+      console.log(
+        "[YouTube AI Summarizer] LLM request sent successfully, waiting for response"
+      );
     } catch (error) {
-      console.error("Error summarizing:", error);
+      console.error("[YouTube AI Summarizer] Error summarizing:", error);
       hideLoadingIndicator();
       displaySummaryModal(
         `Error: ${
@@ -946,6 +1130,12 @@ function displaySummaryModal(summary) {
         }. Please try again.`
       );
       isSummaryInProgress = false;
+
+      // Reset button states
+      if (summarizeButton) {
+        summarizeButton.textContent = config.buttonText;
+        summarizeButton.disabled = false;
+      }
     } finally {
       // Reset button state (we'll update again when the summary comes back)
       setTimeout(() => {
@@ -958,17 +1148,26 @@ function displaySummaryModal(summary) {
     }
   };
 
-  // NOTE: Main message listener now moves outside the IIFE
-
   // Monitor for DOM changes that might indicate the transcript button has appeared
   function setupObserver() {
     console.log("[YouTube AI Summarizer] Setting up observer");
     const observer = new MutationObserver((mutations) => {
-      if (!summarizeButton && isVideoPage()) {
-        console.log(
-          "[YouTube AI Summarizer] DOM changed, checking for transcript button"
-        );
-        insertSummarizeButton();
+      if (isVideoPage()) {
+        // Check for transcript button if our summarize button doesn't exist
+        if (!summarizeButton) {
+          console.log(
+            "[YouTube AI Summarizer] DOM changed, checking for transcript button"
+          );
+          insertSummarizeButton();
+        }
+
+        // Check for related videos section to add our summarize button
+        if (!relatedVideoButtonAdded) {
+          console.log(
+            "[YouTube AI Summarizer] DOM changed, checking for related videos section"
+          );
+          insertRelatedVideosSummarizeButton();
+        }
       }
     });
 
@@ -982,9 +1181,13 @@ function displaySummaryModal(summary) {
     console.log("[YouTube AI Summarizer] Initializing extension");
     if (isVideoPage()) {
       console.log(
-        "[YouTube AI Summarizer] On video page, attempting to insert button"
+        "[YouTube AI Summarizer] On video page, attempting to insert buttons"
       );
+      // Insert the transcript button (old functionality)
       insertSummarizeButton();
+
+      // Also insert our new button above related videos
+      insertRelatedVideosSummarizeButton();
     }
 
     // Setup observer for future DOM changes
@@ -995,13 +1198,15 @@ function displaySummaryModal(summary) {
       // Reset state
       console.log("[YouTube AI Summarizer] Navigation detected, resetting");
       summarizeButton = null;
+      relatedVideoButtonAdded = false;
 
       // Check if we should add button on the new page
       if (isVideoPage()) {
         console.log(
-          "[YouTube AI Summarizer] Navigated to video page, inserting button"
+          "[YouTube AI Summarizer] Navigated to video page, inserting buttons"
         );
         insertSummarizeButton();
+        insertRelatedVideosSummarizeButton();
       }
     });
 
