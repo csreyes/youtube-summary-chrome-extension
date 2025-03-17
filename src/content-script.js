@@ -23,6 +23,45 @@ function isVideoPage() {
   return isVideo;
 }
 
+// Function to extract summary content from different message formats
+function extractSummaryContent(message) {
+  // Check if summary is directly available
+  if (message.summary) {
+    return message.summary;
+  }
+
+  // Check for other common patterns
+  if (message.data && message.data.summary) {
+    return message.data.summary;
+  }
+
+  if (message.payload && message.payload.summary) {
+    return message.payload.summary;
+  }
+
+  if (message.result && message.result.summary) {
+    return message.result.summary;
+  }
+
+  // For messages that might have the content directly in a field
+  if (typeof message.text === "string" && message.text.length > 20) {
+    return message.text;
+  }
+
+  if (typeof message.content === "string" && message.content.length > 20) {
+    return message.content;
+  }
+
+  // Log the full message structure for debugging
+  console.error(
+    "[YouTube AI Summarizer] Could not extract summary from message:",
+    JSON.stringify(message).substring(0, 1000)
+  );
+
+  // Return null to indicate failure
+  return null;
+}
+
 // Add message listener immediately (outside the IIFE) to ensure it's registered early
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log(
@@ -38,35 +77,72 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Handle summary results outside the IIFE to ensure they're caught
-  if (message.type === "SUMMARY_RESULT") {
-    console.log(
-      "[YouTube AI Summarizer] Received summary result with length:",
-      message.summary?.length || 0
-    );
-
-    // Enhanced logging for LLM response
-    console.log(
-      "[YouTube AI Summarizer] LLM response received, first 200 chars:",
-      message.summary?.substring(0, 200) || "No summary"
-    );
-
-    // Hide loading indicator if it exists
-    hideLoadingIndicator();
-
-    // Reset the state
-    isSummaryInProgress = false;
-
-    // Make sure we have a summary to display
-    if (!message.summary) {
-      console.error(
-        "[YouTube AI Summarizer] Received null or undefined summary"
+  if (
+    message.type === "SUMMARY_RESULT" ||
+    message.action === "display_summary"
+  ) {
+    try {
+      // For debugging different message formats - log the whole message structure
+      console.log(
+        "[YouTube AI Summarizer] Full message structure:",
+        JSON.stringify(message).substring(0, 500)
       );
-      displaySummaryModal("Error: No summary received. Please try again.");
-      return false;
-    }
 
-    // Display the summary
-    displaySummaryModal(message.summary);
+      // Extract the summary content from the message
+      const summaryContent = extractSummaryContent(message);
+
+      console.log(
+        "[YouTube AI Summarizer] Extracted summary content with length:",
+        summaryContent?.length || 0
+      );
+
+      // Enhanced logging for LLM response
+      if (summaryContent) {
+        console.log(
+          "[YouTube AI Summarizer] LLM response received, first 200 chars:",
+          typeof summaryContent === "string"
+            ? summaryContent.substring(0, 200)
+            : JSON.stringify(summaryContent).substring(0, 200)
+        );
+      }
+
+      // Hide loading indicator if it exists
+      hideLoadingIndicator();
+
+      // Reset the state
+      isSummaryInProgress = false;
+
+      // Make sure we have a summary to display
+      if (!summaryContent) {
+        console.error(
+          "[YouTube AI Summarizer] Received null or undefined summary"
+        );
+        displaySummaryModal("Error: No summary received. Please try again.");
+        return false;
+      }
+
+      // Display the summary
+      displaySummaryModal(summaryContent);
+    } catch (error) {
+      console.error(
+        "[YouTube AI Summarizer] Error handling summary message:",
+        error
+      );
+      hideLoadingIndicator();
+      isSummaryInProgress = false;
+
+      // Try to display error message in modal
+      try {
+        displaySummaryModal(
+          "Error processing summary: " + (error.message || "Unknown error")
+        );
+      } catch (modalError) {
+        console.error(
+          "[YouTube AI Summarizer] Failed to display error modal:",
+          modalError
+        );
+      }
+    }
     return false; // No async response needed
   }
 
@@ -316,83 +392,129 @@ function displaySummaryModal(summary) {
   const content = document.createElement("div");
   content.className = "ai-summary-content";
 
-  if (typeof summary === "string") {
-    // Check for error message
-    if (summary.startsWith("Error:")) {
-      const errorDiv = document.createElement("div");
-      errorDiv.className = "ai-summary-error";
-      errorDiv.innerText = summary;
-      content.appendChild(errorDiv);
-    }
-    // Handle markdown formatting
-    else if (summary.includes("#") || summary.includes("-")) {
-      // Simple markdown parser
-      let formattedContent = summary
-        // Headers
-        .replace(/^#\s+(.+)$/gm, "<h1>$1</h1>")
-        .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
-        .replace(/^###\s+(.+)$/gm, "<h3>$1</h3>")
-        // Lists
-        .replace(/^-\s+(.+)$/gm, "<li>$1</li>")
-        // Paragraphs
-        .split("\n\n")
-        .map((para) => {
-          if (!para.startsWith("<h") && !para.startsWith("<li")) {
-            return `<p>${para}</p>`;
+  // Process the summary based on its type
+  try {
+    if (typeof summary === "string") {
+      // Check for error message
+      if (summary.startsWith("Error:")) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "ai-summary-error";
+        errorDiv.innerText = summary;
+        content.appendChild(errorDiv);
+      }
+      // Handle markdown formatting
+      else if (summary.includes("#") || summary.includes("-")) {
+        // Simple markdown parser
+        let formattedContent = summary
+          // Headers
+          .replace(/^#\s+(.+)$/gm, "<h1>$1</h1>")
+          .replace(/^##\s+(.+)$/gm, "<h2>$1</h2>")
+          .replace(/^###\s+(.+)$/gm, "<h3>$1</h3>")
+          // Lists
+          .replace(/^-\s+(.+)$/gm, "<li>$1</li>")
+          // Paragraphs
+          .split("\n\n")
+          .map((para) => {
+            if (!para.startsWith("<h") && !para.startsWith("<li")) {
+              return `<p>${para}</p>`;
+            }
+            return para;
+          })
+          .join("");
+
+        // Wrap lists
+        formattedContent = formattedContent
+          .replace(/<li>(.+?)<\/li>/g, function (match) {
+            return "<ul>" + match + "</ul>";
+          })
+          .replace(/<\/ul><ul>/g, "");
+
+        content.innerHTML = formattedContent;
+      } else {
+        // Simple string summary
+        const paragraphs = summary.split("\n\n");
+        paragraphs.forEach((paragraph) => {
+          if (paragraph.trim()) {
+            const p = document.createElement("p");
+            p.innerText = paragraph;
+            content.appendChild(p);
           }
-          return para;
-        })
-        .join("");
+        });
+      }
+    } else if (summary && typeof summary === "object") {
+      // Additional logging for debugging object structure
+      console.log(
+        "[YouTube AI Summarizer] Summary object structure:",
+        JSON.stringify(summary).substring(0, 500)
+      );
 
-      // Wrap lists
-      formattedContent = formattedContent
-        .replace(/<li>(.+?)<\/li>/g, function (match) {
-          return "<ul>" + match + "</ul>";
-        })
-        .replace(/<\/ul><ul>/g, "");
+      // Handle structured summary objects
+      if (summary.html) {
+        content.innerHTML = summary.html;
+      } else if (summary.text || summary.summary) {
+        // Use summary field if available (for backward compatibility)
+        const summaryText = summary.text || summary.summary;
 
-      content.innerHTML = formattedContent;
-    } else {
-      // Simple string summary
-      const paragraphs = summary.split("\n\n");
-      paragraphs.forEach((paragraph) => {
-        if (paragraph.trim()) {
+        // Create formatted sections
+        const mainSummary = document.createElement("div");
+        mainSummary.className = "ai-summary-section";
+        mainSummary.innerText = summaryText;
+        content.appendChild(mainSummary);
+
+        // Add any additional sections
+        if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
+          const keyPointsSection = document.createElement("div");
+          keyPointsSection.className = "ai-summary-key-points";
+
+          const keyPointsTitle = document.createElement("h4");
+          keyPointsTitle.textContent = "Key Points";
+          keyPointsSection.appendChild(keyPointsTitle);
+
+          const keyPointsList = document.createElement("ul");
+          summary.keyPoints.forEach((point) => {
+            const li = document.createElement("li");
+            li.textContent = point;
+            keyPointsList.appendChild(li);
+          });
+          keyPointsSection.appendChild(keyPointsList);
+          content.appendChild(keyPointsSection);
+        }
+      } else {
+        // Fallback for unknown object structure - try to extract any text content
+        let extractedText = "";
+
+        // Look for any property that might contain the summary text
+        for (const key in summary) {
+          if (typeof summary[key] === "string" && summary[key].length > 50) {
+            extractedText = summary[key];
+            break;
+          }
+        }
+
+        if (extractedText) {
           const p = document.createElement("p");
-          p.innerText = paragraph;
+          p.innerText = extractedText;
+          content.appendChild(p);
+        } else {
+          // Last resort - stringify the object
+          const p = document.createElement("p");
+          p.innerText = "Summary: " + JSON.stringify(summary, null, 2);
           content.appendChild(p);
         }
-      });
-    }
-  } else if (summary && typeof summary === "object") {
-    // Handle structured summary objects
-    if (summary.html) {
-      content.innerHTML = summary.html;
-    } else if (summary.text) {
-      // Create formatted sections
-      const mainSummary = document.createElement("div");
-      mainSummary.className = "ai-summary-section";
-      mainSummary.innerText = summary.text;
-      content.appendChild(mainSummary);
-
-      // Add any additional sections
-      if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
-        const keyPointsSection = document.createElement("div");
-        keyPointsSection.className = "ai-summary-key-points";
-
-        const keyPointsTitle = document.createElement("h4");
-        keyPointsTitle.textContent = "Key Points";
-        keyPointsSection.appendChild(keyPointsTitle);
-
-        const keyPointsList = document.createElement("ul");
-        summary.keyPoints.forEach((point) => {
-          const li = document.createElement("li");
-          li.textContent = point;
-          keyPointsList.appendChild(li);
-        });
-        keyPointsSection.appendChild(keyPointsList);
-        content.appendChild(keyPointsSection);
       }
+    } else {
+      // Handle unexpected summary type
+      const errorDiv = document.createElement("div");
+      errorDiv.className = "ai-summary-error";
+      errorDiv.innerText = "Error: Received unexpected summary format.";
+      content.appendChild(errorDiv);
     }
+  } catch (error) {
+    console.error("[YouTube AI Summarizer] Error processing summary:", error);
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "ai-summary-error";
+    errorDiv.innerText = "Error displaying summary: " + error.message;
+    content.appendChild(errorDiv);
   }
 
   modal.appendChild(content);
