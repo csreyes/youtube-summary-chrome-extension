@@ -247,11 +247,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const summaryHTML = `
               <div id="ai-summary-streaming-container" class="ai-summary-streaming">
                 <div class="ai-summary-content markdown-content">
-                  <h2>Generating Summary...</h2>
+                  <div class="loading-indicator" style="display: flex; justify-content: center; padding: 20px;">
+                    <div style="width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                  </div>
                   <div id="${message.responseId}" class="streaming-content"></div>
                 </div>
               </div>
             `;
+            // Add the CSS animation for the spinner
+            const style = document.createElement("style");
+            style.textContent = `
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `;
+            document.head.appendChild(style);
+
             displaySummaryModal(summaryHTML, true);
           }
           return false;
@@ -351,7 +363,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             "[YouTube AI Summarizer] Chat stream complete for",
             message.responseId
           );
-          // No need to do anything special here as the full message is already displayed
+
+          // Update conversation history with the complete message
+          // This is crucial for follow-up questions to work properly
+          if (message.text && message.responseId) {
+            const messageElement = document.getElementById(message.responseId);
+            if (messageElement) {
+              console.log(
+                "[YouTube AI Summarizer] Finalizing message in conversation history:",
+                message.responseId
+              );
+
+              // Call updateStreamingMessage with isAppend=false to ensure it's saved in history
+              updateStreamingMessage(message.responseId, message.text, false);
+            } else {
+              console.error(
+                "[YouTube AI Summarizer] Could not find message element to finalize:",
+                message.responseId
+              );
+            }
+          }
+
           return false;
         }
       }
@@ -488,6 +520,7 @@ function showLoadingIndicator() {
   loadingDiv.innerHTML = `
     <div class="ai-summary-spinner"></div>
     <p>Generating summary, please wait...</p>
+        <p>Generating summary, please wait...</p>
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
   content.appendChild(loadingDiv);
@@ -656,23 +689,25 @@ function displaySummaryModal(summary, isStreaming = false) {
     }
 
     // Store the conversation history
-    // Initialize conversation history if it doesn't exist yet
+    // Initialize conversation history if it doesn't exist yet or reset it for a new summary
     if (
-      !window.conversationHistory &&
-      !isStreaming &&
-      typeof summary === "string"
+      (!window.conversationHistory || typeof summary === "string") &&
+      !isStreaming
     ) {
       // Create a fresh conversation history with the summary as the first message
+      const summaryId = "initial-summary-" + Date.now();
       window.conversationHistory = [
         {
           role: "assistant",
-          content: summary,
-          id: "initial-summary-" + Date.now(),
+          content:
+            typeof summary === "string" ? summary : "Summary unavailable",
+          id: summaryId,
         },
       ];
 
       console.log(
-        "[YouTube AI Summarizer] Initialized conversation history with summary"
+        "[YouTube AI Summarizer] Initialized conversation history with summary, ID:",
+        summaryId
       );
     }
 
@@ -964,9 +999,7 @@ function displaySummaryModal(summary, isStreaming = false) {
     chatSeparator.style.marginTop = "20px";
     chatSeparator.style.marginBottom = "10px";
     chatSeparator.style.borderBottom = "1px solid #e0e0e0";
-    chatSeparator.style.padding = "10px 0";
-    chatSeparator.innerHTML =
-      "<p style='text-align: center; color: #666; margin: 0;'>Ask questions about the video</p>";
+    // Remove the unnecessary text
     content.appendChild(chatSeparator);
 
     // Add chat message container
@@ -1108,13 +1141,36 @@ async function handleChatSubmit() {
   // Add to conversation history
   if (!window.conversationHistory) {
     window.conversationHistory = [];
+    console.log("[YouTube AI Summarizer] Initialized new conversation history");
+  } else {
+    console.log(
+      "[YouTube AI Summarizer] Current conversation history length:",
+      window.conversationHistory.length,
+      "entries:",
+      window.conversationHistory.map((msg) => ({
+        role: msg.role,
+        id: msg.id || "none",
+      }))
+    );
   }
 
   // Fix: Create a fresh copy of the conversation history for each request
   // This prevents the same history object from being reused across requests
   const currentHistory = JSON.parse(JSON.stringify(window.conversationHistory));
-  currentHistory.push({ role: "user", content: userMessage });
+  const userMessageId = "user-message-" + Date.now();
+  currentHistory.push({
+    role: "user",
+    content: userMessage,
+    id: userMessageId,
+  });
   window.conversationHistory = currentHistory;
+
+  console.log(
+    "[YouTube AI Summarizer] Updated conversation history with user message:",
+    userMessageId,
+    "New length:",
+    window.conversationHistory.length
+  );
 
   // Create streaming response container
   const responseId = "response-" + Date.now();
@@ -1342,7 +1398,11 @@ function updateStreamingMessage(id, content, isAppend = false) {
     }
 
     // Add to conversation history if complete
-    if (!isAppend && safeContent && !safeContent.startsWith("Error:")) {
+    if (
+      (!isAppend || fullContent.length > 50) &&
+      safeContent &&
+      !safeContent.startsWith("Error:")
+    ) {
       if (window.conversationHistory) {
         // Fix: Find if there's already an assistant message with this ID
         const messageIndex = window.conversationHistory.findIndex(
@@ -1356,20 +1416,31 @@ function updateStreamingMessage(id, content, isAppend = false) {
 
         // If an existing message with this ID is found, update it; otherwise add new
         if (messageIndex >= 0) {
-          updatedHistory[messageIndex].content = safeContent;
+          updatedHistory[messageIndex].content = fullContent;
+          console.log(
+            `[YouTube AI Summarizer] Updated existing message in conversation history: ${id}`
+          );
         } else {
           updatedHistory.push({
             role: "assistant",
-            content: safeContent,
+            content: fullContent,
             id: id,
           });
+          console.log(
+            `[YouTube AI Summarizer] Added new message to conversation history: ${id}`
+          );
         }
 
         // Update the conversation history
         window.conversationHistory = updatedHistory;
 
         console.log(
-          `[YouTube AI Summarizer] Updated conversation history, new length: ${window.conversationHistory.length}`
+          `[YouTube AI Summarizer] Updated conversation history, new length: ${window.conversationHistory.length}, entries:`,
+          window.conversationHistory.map((msg) => ({
+            role: msg.role,
+            id: msg.id,
+            contentLength: msg.content.length,
+          }))
         );
       }
     }

@@ -203,23 +203,60 @@ async function handleChatMessage(payload, tabId) {
 
     // Create transcriptContext from the conversation history
     let transcriptContext = "";
+    let initialSummary = null;
+
     if (payload.history && payload.history.length > 0) {
       // Find the first assistant message, which should be the summary
-      const summaryMessage = payload.history.find(
-        (msg) => msg.role === "assistant"
+      initialSummary = payload.history.find(
+        (msg) =>
+          msg.role === "assistant" &&
+          msg.id &&
+          msg.id.startsWith("initial-summary-")
       );
-      if (summaryMessage) {
-        transcriptContext = summaryMessage.content;
+
+      if (!initialSummary) {
+        // If we can't find a specifically marked initial summary, fall back to first assistant message
+        initialSummary = payload.history.find(
+          (msg) => msg.role === "assistant"
+        );
+      }
+
+      if (initialSummary) {
+        transcriptContext = initialSummary.content;
+        console.log(
+          "[Background] Found initial summary, length:",
+          transcriptContext.length
+        );
+      } else {
+        console.log(
+          "[Background] No initial summary found in conversation history"
+        );
       }
     }
 
     // Prepare the conversation history
-    // Filter out the initial summary message to keep context more focused on the conversation
-    const chatHistory = payload.history
-      ? payload.history.filter(
-          (msg, index) => !(msg.role === "assistant" && index === 0)
-        )
-      : [];
+    // We'll include all messages except for the initial summary which we'll handle specially
+    let chatHistory = [];
+
+    if (payload.history && payload.history.length > 0) {
+      chatHistory = payload.history.filter((msg) => {
+        // Keep all user messages
+        if (msg.role === "user") return true;
+
+        // Keep assistant messages that aren't the initial summary
+        if (msg.role === "assistant") {
+          return initialSummary ? msg.id !== initialSummary.id : true;
+        }
+
+        return false;
+      });
+
+      console.log(
+        "[Background] Prepared chat history with",
+        chatHistory.length,
+        "messages"
+      );
+    }
 
     // Add system message as the first message
     const messages = [
