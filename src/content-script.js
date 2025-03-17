@@ -328,7 +328,7 @@ let handleSummarizeClick;
 function displaySummaryModal(summary) {
   console.log(
     "[YouTube AI Summarizer] Displaying summary modal, content length:",
-    summary?.length || 0
+    summary?.length || (summary?.data ? JSON.stringify(summary.data).length : 0)
   );
 
   // Log additional details about the summary for debugging
@@ -340,7 +340,13 @@ function displaySummaryModal(summary) {
       typeof summary === "object" && summary !== null
     );
 
-    if (typeof summary === "string") {
+    // Check if we have a structured JSON summary
+    if (summary.type === "json_summary" && summary.data) {
+      console.log(
+        "[YouTube AI Summarizer] JSON summary detected, structure:",
+        Object.keys(summary.data)
+      );
+    } else if (typeof summary === "string") {
       // Log structure info about string summary
       const hasMarkdown = summary.includes("#") || summary.includes("-");
       const paragraphCount = summary.split("\n\n").length;
@@ -355,12 +361,8 @@ function displaySummaryModal(summary) {
     } else if (summary && typeof summary === "object") {
       // Log structure of object summary
       console.log(
-        "[YouTube AI Summarizer] Summary object keys:",
-        Object.keys(summary),
-        "Has HTML?",
-        !!summary.html,
-        "Has key points?",
-        Array.isArray(summary.keyPoints) && summary.keyPoints.length > 0
+        "[YouTube AI Summarizer] Summary object structure:",
+        JSON.stringify(summary).substring(0, 500)
       );
     }
   }
@@ -405,10 +407,18 @@ function displaySummaryModal(summary) {
   // Add some extra styling for better readability
   content.style.lineHeight = "1.6";
   content.style.fontSize = "16px";
+  content.style.padding = "5px 20px 15px 20px"; // Add more padding
 
   // Process the summary based on its type
   try {
-    if (typeof summary === "string") {
+    // Check if we have a structured JSON summary
+    if (summary.type === "json_summary" && summary.data) {
+      // Render the JSON summary with our enhanced formatter
+      renderJsonSummary(summary.data, content);
+    } else if (summary.type === "text_summary" && summary.text) {
+      // Handle the text summary format
+      renderTextSummary(summary.text, content);
+    } else if (typeof summary === "string") {
       // Check for error message
       if (summary.startsWith("Error:")) {
         const errorDiv = document.createElement("div");
@@ -422,21 +432,27 @@ function displaySummaryModal(summary) {
         const formattedContent = processSummaryWithTimestamps(summary);
         content.innerHTML = formattedContent;
       } else {
-        // Simple string summary with enhanced formatting
-        const paragraphs = summary.split("\n\n");
-        paragraphs.forEach((paragraph) => {
-          if (paragraph.trim()) {
-            // Check for timestamps in the paragraph
-            const p = document.createElement("div");
-            p.style.marginBottom = "16px";
+        // Check if this looks like a bullet list with • characters
+        if (summary.includes("•")) {
+          // This is likely a bullet list - use special formatting
+          content.innerHTML = formatBulletedSummary(summary);
+        } else {
+          // Simple string summary with enhanced formatting
+          const paragraphs = summary.split("\n\n");
+          paragraphs.forEach((paragraph) => {
+            if (paragraph.trim()) {
+              // Check for timestamps in the paragraph
+              const p = document.createElement("div");
+              p.style.marginBottom = "16px";
 
-            // Process potential timestamps
-            const processedPara = processTimestampsInText(paragraph);
-            p.innerHTML = processedPara;
+              // Process potential timestamps
+              const processedPara = processTimestampsInText(paragraph);
+              p.innerHTML = processedPara;
 
-            content.appendChild(p);
-          }
-        });
+              content.appendChild(p);
+            }
+          });
+        }
       }
     } else if (summary && typeof summary === "object") {
       // Additional logging for debugging object structure
@@ -575,68 +591,109 @@ function displaySummaryModal(summary) {
   });
 }
 
-// Function to process and enhance markdown summary with timestamps
-function processSummaryWithTimestamps(summary) {
-  // First enhance headings
-  let formattedContent = summary
-    // Headers with enhanced styling
-    .replace(
-      /^#\s+(.+)$/gm,
-      '<h1 style="color:#cc0000; font-size:22px; margin-top:26px; margin-bottom:16px;">$1</h1>'
-    )
-    .replace(
-      /^##\s+(.+)$/gm,
-      '<h2 style="color:#cc0000; font-size:20px; margin-top:22px; margin-bottom:14px;">$1</h2>'
-    )
-    .replace(
-      /^###\s+(.+)$/gm,
-      '<h3 style="color:#cc0000; font-size:18px; margin-top:20px; margin-bottom:12px;">$1</h3>'
-    )
-    // Lists with better styling
-    .replace(
-      /^-\s+(.+)$/gm,
-      '<li style="margin-bottom:10px; position:relative;">$1</li>'
+// Enhanced function to process markdown summaries with timestamps
+function processSummaryWithTimestamps(markdown) {
+  // Check for overview section and enhance it
+  let enhancedMarkdown = markdown;
+
+  // First, find if there's an "Overview:" or similar section and enhance it
+  const overviewMatch = markdown.match(
+    /^\s*(Overview|Summary|Introduction):\s*([\s\S]+?)(?=\n\s*(?:[A-Z][a-z]+:|\n\s*$))/i
+  );
+
+  if (overviewMatch) {
+    const overviewTitle = overviewMatch[1];
+    const overviewContent = overviewMatch[2].trim();
+
+    // Create enhanced overview HTML
+    const enhancedOverview = `
+      <div style="background-color: #f8f8f8; padding: 16px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid #cc0000;">
+        <h3 style="color: #cc0000; margin-top: 0; margin-bottom: 10px; font-size: 18px;">${overviewTitle}</h3>
+        <p style="margin: 0; line-height: 1.6; font-size: 16px;">${processTimestampsInText(
+          overviewContent
+        )}</p>
+      </div>
+    `;
+
+    // Replace the original overview with enhanced version
+    enhancedMarkdown = enhancedMarkdown.replace(
+      overviewMatch[0],
+      enhancedOverview
     );
+  }
 
-  // Split into paragraphs for better formatting
-  formattedContent = formattedContent
-    .split("\n\n")
-    .map((para) => {
-      if (!para.trim()) return "";
-      if (para.startsWith("<h") || para.startsWith("<li")) {
-        return para;
-      }
-      return `<p style="margin-bottom:16px; line-height:1.6;">${para}</p>`;
-    })
-    .join("");
+  // Handle headers with specific formatting
+  enhancedMarkdown = enhancedMarkdown.replace(
+    /^(#+)\s*(.*?)$/gm,
+    (match, hashes, text) => {
+      const level = hashes.length;
+      const fontSize = 22 - level * 2; // h1: 20px, h2: 18px, h3: 16px
+      const color =
+        level === 1 ? "#cc0000" : level === 2 ? "#333333" : "#555555";
+      const marginTop = level === 1 ? "25px" : "20px";
+      const marginBottom = "12px";
+      const paddingBottom = level <= 2 ? "8px" : "0";
+      const borderBottom = level <= 2 ? "1px solid #e0e0e0" : "none";
 
-  // Process timestamps in the content
-  formattedContent = processTimestampsInText(formattedContent);
+      return `<h${level} style="font-size: ${fontSize}px; color: ${color}; margin-top: ${marginTop}; margin-bottom: ${marginBottom}; padding-bottom: ${paddingBottom}; border-bottom: ${borderBottom}; font-weight: 600;">${processTimestampsInText(
+        text
+      )}</h${level}>`;
+    }
+  );
 
-  // Wrap lists properly
-  formattedContent = formattedContent
-    .replace(/<li>(.+?)<\/li>/g, function (match) {
-      return (
-        '<ul style="padding-left:24px; margin-bottom:20px; margin-top:10px;">' +
-        match +
-        "</ul>"
-      );
-    })
-    .replace(/<\/ul><ul[^>]*>/g, "");
+  // Process bullet points for better styling
+  enhancedMarkdown = enhancedMarkdown.replace(
+    /^(\s*[-*])\s*(.*?)$/gm,
+    (match, bullet, text) => {
+      return `<div style="display: flex; margin-bottom: 10px; padding-left: 8px;">
+      <div style="color: #cc0000; margin-right: 8px;">•</div>
+      <div style="flex: 1; line-height: 1.5;">${processTimestampsInText(
+        text
+      )}</div>
+    </div>`;
+    }
+  );
 
-  return formattedContent;
+  // Handle paragraphs
+  let paragraphs = enhancedMarkdown.split("\n\n");
+  paragraphs = paragraphs.map((para) => {
+    if (
+      para.trim() &&
+      !para.includes("<h") &&
+      !para.includes("<div") &&
+      !para.includes("style=")
+    ) {
+      return `<p style="margin-top: 10px; margin-bottom: 15px; line-height: 1.6;">${processTimestampsInText(
+        para
+      )}</p>`;
+    }
+    return para;
+  });
+
+  return paragraphs.join("\n");
 }
 
 // Function to detect and enhance timestamps in text
 function processTimestampsInText(text) {
-  if (!text) return "";
+  // Match patterns like '0:05', '1:30', '01:30', '1:30:45', etc.
+  const timestampPattern = /\b(\d{1,2}:(?:\d{1,2}:)?\d{1,2})\b/g;
 
-  // Regular expression to match YouTube time formats: 1:23, 01:23, 1:23:45, etc.
-  const timeRegex = /\b(\d+:)?(\d+):(\d+)\b/g;
+  // Replace timestamps with clickable links
+  return text.replace(timestampPattern, (match, timestamp) => {
+    // Parse the timestamp into seconds
+    let seconds = 0;
+    const parts = timestamp.split(":").map(Number);
 
-  // Replace timestamps with styled clickable spans
-  return text.replace(timeRegex, function (match) {
-    return `<span class="ai-timestamp" style="color:#cc0000; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
+    if (parts.length === 2) {
+      // MM:SS format
+      seconds = parts[0] * 60 + parts[1];
+    } else if (parts.length === 3) {
+      // HH:MM:SS format
+      seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+
+    // Create a clickable link for the timestamp
+    return `<a href="#" class="timestamp-link" data-time="${seconds}" style="color: #cc0000; text-decoration: underline; font-weight: 600;">${match}</a>`;
   });
 }
 
@@ -651,6 +708,94 @@ function enhanceHtmlWithTimestampsStyling(html) {
   return html.replace(timeRegex, function (match) {
     return `<span class="ai-timestamp" style="color:#cc0000; font-weight:600; cursor:pointer; text-decoration:underline;" data-time="${match}">${match}</span>`;
   });
+}
+
+// New function to format bulleted summaries with improved styling
+function formatBulletedSummary(text) {
+  let formatted = "";
+  let inList = false;
+
+  // Split by lines
+  const lines = text.split("\n");
+
+  lines.forEach((line, index) => {
+    const trimmedLine = line.trim();
+
+    // Check if this is a section header (contains at least one character followed by a colon at the beginning)
+    if (/^([A-Za-z][^:]+):/.test(trimmedLine)) {
+      // Close previous list if we were in one
+      if (inList) {
+        formatted += "</ul>";
+        inList = false;
+      }
+
+      // Extract the header text
+      const headerMatch = trimmedLine.match(/^([A-Za-z][^:]+):(.*)/);
+      if (headerMatch) {
+        const headerTitle = headerMatch[1].trim();
+        const restOfLine = headerMatch[2].trim();
+
+        formatted += `<h3 style="color: #cc0000; font-size: 18px; font-weight: 600; margin-top: 20px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #e0e0e0;">${processTimestampsInText(
+          headerTitle
+        )}</h3>`;
+
+        // If there's content after the colon, add it as a paragraph
+        if (restOfLine) {
+          formatted += `<p style="margin-top: 6px; margin-bottom: 12px;">${processTimestampsInText(
+            restOfLine
+          )}</p>`;
+        }
+      }
+    }
+    // Check if this is a bullet point (starts with • or -)
+    else if (/^[•\-*]\s/.test(trimmedLine)) {
+      // Start a new list if we weren't in one
+      if (!inList) {
+        formatted +=
+          '<ul style="padding-left: 20px; margin-top: 10px; margin-bottom: 15px;">';
+        inList = true;
+      }
+
+      // Extract the bullet point content
+      const bulletContent = trimmedLine.replace(/^[•\-*]\s/, "").trim();
+
+      // Add the bullet point
+      formatted += `<li style="margin-bottom: 8px; line-height: 1.5;">${processTimestampsInText(
+        bulletContent
+      )}</li>`;
+    }
+    // Check if it's a blank line
+    else if (trimmedLine === "") {
+      // Close the list if we were in one
+      if (inList) {
+        formatted += "</ul>";
+        inList = false;
+      }
+
+      // Add a small gap
+      formatted += '<div style="height: 8px;"></div>';
+    }
+    // Regular paragraph text
+    else {
+      // Close the list if we were in one
+      if (inList) {
+        formatted += "</ul>";
+        inList = false;
+      }
+
+      // Add as a paragraph
+      formatted += `<p style="margin-top: 6px; margin-bottom: 12px; line-height: 1.5;">${processTimestampsInText(
+        trimmedLine
+      )}</p>`;
+    }
+  });
+
+  // Close any open list
+  if (inList) {
+    formatted += "</ul>";
+  }
+
+  return formatted;
 }
 
 // Main extension code - the IIFE
@@ -1638,10 +1783,10 @@ function convertTimestampToSeconds(timestamp) {
   const parts = timestamp.split(":").map((part) => parseInt(part));
 
   if (parts.length === 2) {
-    // Format: MM:SS
+    // MM:SS format
     return parts[0] * 60 + parts[1];
   } else if (parts.length === 3) {
-    // Format: HH:MM:SS
+    // HH:MM:SS format
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   }
 
@@ -1676,5 +1821,152 @@ function jumpToVideoTime(seconds) {
     }
   } catch (error) {
     console.error("[YouTube AI Summarizer] Error jumping to timestamp:", error);
+  }
+}
+
+// New function to render text summary format
+function renderTextSummary(text, container) {
+  // Check if this looks like a bullet list with • characters
+  if (text.includes("•")) {
+    // This is likely a bullet list - use special formatting
+    container.innerHTML = formatBulletedSummary(text);
+  } else if (text.includes("#") || text.includes("-")) {
+    // Enhanced markdown parser with timestamp handling
+    const formattedContent = processSummaryWithTimestamps(text);
+    container.innerHTML = formattedContent;
+  } else {
+    // Simple string summary with enhanced formatting
+    const paragraphs = text.split("\n\n");
+    paragraphs.forEach((paragraph) => {
+      if (paragraph.trim()) {
+        // Check for timestamps in the paragraph
+        const p = document.createElement("div");
+        p.style.marginBottom = "16px";
+
+        // Process potential timestamps
+        const processedPara = processTimestampsInText(paragraph);
+        p.innerHTML = processedPara;
+
+        container.appendChild(p);
+      }
+    });
+  }
+}
+
+// New function to render JSON structured summary with enhanced styling
+function renderJsonSummary(data, container) {
+  container.style.padding = "16px 24px";
+
+  // Overview section
+  if (data.overview) {
+    const overview = document.createElement("div");
+    overview.className = "summary-overview";
+    overview.style.fontSize = "17px";
+    overview.style.lineHeight = "1.6";
+    overview.style.marginBottom = "24px";
+    overview.style.padding = "16px";
+    overview.style.backgroundColor = "#f8f8f8";
+    overview.style.borderRadius = "8px";
+    overview.style.borderLeft = "4px solid #cc0000";
+
+    // Process any timestamps in the overview
+    overview.innerHTML = processTimestampsInText(data.overview);
+    container.appendChild(overview);
+  }
+
+  // Chapters/sections
+  if (data.chapters && data.chapters.length > 0) {
+    data.chapters.forEach((chapter, index) => {
+      const chapterSection = document.createElement("div");
+      chapterSection.className = "summary-chapter";
+      chapterSection.style.marginBottom = "24px";
+
+      // Chapter header with timestamp if available
+      const header = document.createElement("h3");
+      header.style.fontSize = "20px";
+      header.style.color = "#cc0000";
+      header.style.fontWeight = "600";
+      header.style.marginBottom = "12px";
+      header.style.paddingBottom = "8px";
+      header.style.borderBottom = "1px solid #e0e0e0";
+
+      // Add timestamp to chapter title if available
+      let titleText = chapter.title;
+      if (chapter.timestamp) {
+        titleText += ` (${chapter.timestamp})`;
+      }
+
+      // Process any timestamps in the title itself
+      header.innerHTML = processTimestampsInText(titleText);
+      chapterSection.appendChild(header);
+
+      // Chapter points
+      if (chapter.points && chapter.points.length > 0) {
+        const pointsList = document.createElement("ul");
+        pointsList.style.listStyleType = "disc";
+        pointsList.style.paddingLeft = "24px";
+        pointsList.style.marginTop = "12px";
+
+        chapter.points.forEach((point) => {
+          const pointItem = document.createElement("li");
+          pointItem.style.marginBottom = "10px";
+          pointItem.style.paddingLeft = "4px";
+
+          // Build point text with timestamp if available
+          let pointText = point.text;
+          if (point.timestamp) {
+            pointText += ` (${point.timestamp})`;
+          }
+
+          // Process any timestamps in the point text
+          pointItem.innerHTML = processTimestampsInText(pointText);
+          pointsList.appendChild(pointItem);
+        });
+
+        chapterSection.appendChild(pointsList);
+      }
+
+      container.appendChild(chapterSection);
+    });
+  }
+
+  // Key takeaways
+  if (data.keyTakeaways && data.keyTakeaways.length > 0) {
+    const takeawaysSection = document.createElement("div");
+    takeawaysSection.className = "summary-takeaways";
+    takeawaysSection.style.marginTop = "32px";
+    takeawaysSection.style.padding = "16px";
+    takeawaysSection.style.backgroundColor = "#f0f7ff";
+    takeawaysSection.style.borderRadius = "8px";
+
+    const takeawaysHeader = document.createElement("h3");
+    takeawaysHeader.textContent = "Key Takeaways";
+    takeawaysHeader.style.fontSize = "18px";
+    takeawaysHeader.style.color = "#0066cc";
+    takeawaysHeader.style.marginTop = "0";
+    takeawaysHeader.style.marginBottom = "12px";
+    takeawaysSection.appendChild(takeawaysHeader);
+
+    const takeawaysList = document.createElement("ul");
+    takeawaysList.style.paddingLeft = "24px";
+    takeawaysList.style.marginBottom = "0";
+
+    data.keyTakeaways.forEach((takeaway) => {
+      const takeawayItem = document.createElement("li");
+      takeawayItem.style.marginBottom = "10px";
+
+      // Build takeaway text with timestamp if available
+      let takeawayText = takeaway.text;
+      if (takeaway.timestamp) {
+        takeawayText += ` (${takeaway.timestamp})`;
+      }
+
+      // Process any timestamps in the takeaway text
+      takeawayItem.innerHTML = processTimestampsInText(takeawayText);
+      takeawaysList.appendChild(takeawayItem);
+    });
+
+    takeawaysSection.appendChild(takeawaysList);
+    container.appendChild(takeawaysSection);
   }
 }

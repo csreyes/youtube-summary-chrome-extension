@@ -178,11 +178,37 @@ async function handleSummarizeRequest(payload, tabId) {
           {
             role: "system",
             content:
-              "You are a helpful assistant that summarizes YouTube video transcripts. Focus only on educational content and main informational points.",
+              "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
           },
           {
             role: "user",
-            content: `Please provide a factual, educational summary of this YouTube video transcript. Focus only on the main informational points and educational content:\n\n${payload.text}`,
+            content: `Please analyze this YouTube video transcript and create a structured JSON summary with the following format:
+
+{
+  "overview": "A concise 1-2 sentence overview of what the video is about",
+  "chapters": [
+    {
+      "title": "Chapter/Section Title",
+      "timestamp": "MM:SS or HH:MM:SS format if available", 
+      "points": [
+        {"text": "First key point in this section", "timestamp": "MM:SS if available"},
+        {"text": "Second key point in this section", "timestamp": "MM:SS if available"}
+      ]
+    }
+  ],
+  "keyTakeaways": [
+    {"text": "First main takeaway from the video", "timestamp": "MM:SS if available"},
+    {"text": "Second main takeaway from the video", "timestamp": "MM:SS if available"}
+  ]
+}
+
+Analyze the transcript carefully to identify chapter/section breaks, and include timestamps whenever possible. If a timestamp isn't mentioned for a specific point, you can omit the timestamp field for that point.
+
+Here's the transcript:
+
+${payload.text}
+
+Return ONLY valid JSON without any surrounding text, markdown formatting, or code blocks. Your response must be parseable directly with JSON.parse().`,
           },
         ],
         temperature: 0.3, // Use a lower temperature for more focused summaries
@@ -215,11 +241,11 @@ async function handleSummarizeRequest(payload, tabId) {
     }
 
     // Extract summary from the OpenRouter response
-    const summary = data.choices[0]?.message?.content;
+    const rawSummary = data.choices[0]?.message?.content;
 
     // More robust validation
-    if (!summary || summary.length < 20) {
-      console.error("[Background] Invalid or incomplete summary:", summary);
+    if (!rawSummary || rawSummary.length < 20) {
+      console.error("[Background] Invalid or incomplete summary:", rawSummary);
       await notifyError(
         tabId,
         "Unable to generate a meaningful summary. The content may have been too complex or inappropriate."
@@ -228,11 +254,45 @@ async function handleSummarizeRequest(payload, tabId) {
     }
 
     console.log(
-      `[Background] Generated summary (${summary.length} chars) for tab ${tabId}`
+      `[Background] Generated summary (${rawSummary.length} chars) for tab ${tabId}`
     );
 
+    // Try to parse the JSON response
+    let summary;
+    try {
+      // Try to clean and parse the JSON
+      let jsonContent = rawSummary.trim();
+
+      // Remove any markdown code blocks if present
+      const jsonMatch = jsonContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonMatch && jsonMatch[1]) {
+        jsonContent = jsonMatch[1].trim();
+      }
+
+      // Parse the JSON
+      const jsonData = JSON.parse(jsonContent);
+
+      // Send as a structured summary object
+      summary = {
+        type: "json_summary",
+        data: jsonData,
+      };
+
+      console.log("[Background] Successfully parsed JSON summary");
+    } catch (jsonError) {
+      console.error("[Background] Failed to parse JSON summary:", jsonError);
+      // Fall back to plain text if JSON parsing fails
+      summary = {
+        type: "text_summary",
+        text: rawSummary,
+      };
+    }
+
     // Send the summary back to the content script
-    chrome.tabs.sendMessage(tabId, { action: "display_summary", summary });
+    chrome.tabs.sendMessage(tabId, {
+      action: "display_summary",
+      summary: summary,
+    });
   } catch (error) {
     console.error("[Background] Error during summarization:", error);
     await notifyError(tabId, `Error: ${error.message}`);
@@ -288,7 +348,7 @@ async function callLlmApi(prompt, config) {
         {
           role: "system",
           content:
-            "You are a helpful assistant that summarizes YouTube video transcripts. Focus only on educational content and main informational points.",
+            "You are a helpful assistant that creates structured JSON summaries of YouTube video transcripts. You should identify key sections, important points, and include meaningful timestamps from the transcript whenever possible. Format your response ONLY as valid JSON that can be parsed with JSON.parse().",
         },
         { role: "user", content: prompt },
       ],
