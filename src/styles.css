@@ -153,7 +153,8 @@
   margin-bottom: 20px;
   border-bottom: 1px solid #e0e0e0;
   padding-bottom: 10px;
-  animation: pulse 1.5s infinite ease-in-out;
+  animation: none !important;
+  transition: none !important;
 }
 
 .streaming-content {

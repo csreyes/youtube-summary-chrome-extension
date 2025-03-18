@@ -559,7 +559,7 @@ function showLoadingIndicator() {
   const loadingDiv = document.createElement("div");
   loadingDiv.className = "ai-summary-loading";
   loadingDiv.innerHTML = `
-    <div class="ai-summary-spinner"></div>
+    <div class="ai-summary-spinner animate-element"></div>
     <p>Generating summary, please wait...</p>
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
@@ -572,6 +572,17 @@ function showLoadingIndicator() {
       to { transform: rotate(360deg); }
     }
     
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.8; }
+      50% { opacity: 1; }
+      100% { opacity: 0.8; }
+    }
+    
     .ai-summary-spinner {
       display: inline-block;
       width: 50px;
@@ -580,6 +591,19 @@ function showLoadingIndicator() {
       border-radius: 50%;
       border-top-color: #cc0000;
       animation: spin 1s ease-in-out infinite !important;
+    }
+    
+    /* Make sure animations work for streaming content indicators */
+    .ai-summary-streaming h2 {
+      animation: pulse 1.5s infinite ease-in-out !important;
+    }
+    
+    .streaming-content:after {
+      animation: blink 1s infinite !important;
+    }
+    
+    .blinking-cursor {
+      animation: blink 1s infinite !important;
     }
   `;
   document.head.appendChild(spinnerStyle);
@@ -927,7 +951,6 @@ function displaySummaryModal(summary, isStreaming = false) {
               "[YouTube AI Summarizer] Error extracting responseId:",
               e
             );
-            responseId = "summary-" + Date.now();
           }
         } else {
           responseId = "summary-" + Date.now();
@@ -948,6 +971,44 @@ function displaySummaryModal(summary, isStreaming = false) {
         );
       }
 
+      // Add explicit streaming animation styles
+      const streamingStyle = document.createElement("style");
+      streamingStyle.textContent = `
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        
+        @keyframes pulse {
+          0% { opacity: 0.8; }
+          50% { opacity: 1; }
+          100% { opacity: 0.8; }
+        }
+        
+        .streaming-content:after {
+          content: '';
+          display: inline-block;
+          width: 2px;
+          height: 18px;
+          background-color: #0066cc;
+          animation: blink 1s infinite !important;
+          margin-left: 2px;
+          vertical-align: middle;
+        }
+        
+        /* Explicitly disable animations for headings */
+        h1, h2, h3, h4, h5, h6 {
+          transition: none !important;
+          animation: none !important;
+        }
+        
+        /* Fix for heading animations */
+        .ai-summary-streaming h2 {
+          animation: none !important;
+        }
+      `;
+      document.head.appendChild(streamingStyle);
+
       // Also create the chat container
       const chatContainer = document.createElement("div");
       chatContainer.id = "chat-messages-container";
@@ -963,7 +1024,7 @@ function displaySummaryModal(summary, isStreaming = false) {
 
       // Add the video title as a styled header
       const titleElement = document.createElement("div");
-      titleElement.className = "video-title";
+      titleElement.className = "video-title stable-element"; // Add the stable-element class
       titleElement.textContent = videoTitle.trim();
       titleElement.style.fontSize = "22px";
       titleElement.style.fontWeight = "500";
@@ -978,6 +1039,17 @@ function displaySummaryModal(summary, isStreaming = false) {
       // Fix rerendering by forcing layout calculation once
       titleElement.style.willChange = "auto";
       content.appendChild(titleElement);
+
+      // Add a style to ensure stable elements don't animate
+      const stableElementStyle = document.createElement("style");
+      stableElementStyle.textContent = `
+        .stable-element {
+          transition: none !important;
+          animation: none !important;
+          will-change: auto;
+        }
+      `;
+      document.head.appendChild(stableElementStyle);
 
       // For string summaries, render with markdown
       if (typeof summary === "string") {
@@ -1192,6 +1264,18 @@ function displaySummaryModal(summary, isStreaming = false) {
         to { transform: rotate(360deg); }
       }
       
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+      
+      /* Disable animations for all headings and content */
+      h1, h2, h3, h4, h5, h6, p, div, span, li, ul, ol {
+        transition: none !important;
+        animation: none !important;
+        will-change: auto;
+      }
+      
       /* Disable animations for video title to prevent rerendering issues */
       .video-title {
         transition: none !important;
@@ -1199,21 +1283,35 @@ function displaySummaryModal(summary, isStreaming = false) {
         will-change: auto;
       }
       
-      /* Re-enable animations for the loading spinner */
+      /* Re-enable animations ONLY for specific loading elements */
       .ai-summary-spinner {
         animation: spin 1s ease-in-out infinite !important;
       }
       
-      .ai-summary-streaming h2 {
-        animation: pulse 1.5s infinite ease-in-out !important;
-      }
-      
+      /* Ensure streaming cursor animations work but NOT headings */
       .streaming-content:after {
         animation: blink 1s infinite !important;
       }
       
       .blinking-cursor {
         animation: blink 1s infinite !important;
+      }
+      
+      /* Create a clear separation between animated and non-animated elements */
+      .animate-element {
+        transition: initial !important; 
+        animation: initial !important;
+        will-change: initial !important;
+      }
+      
+      .ai-summary-spinner.animate-element {
+        animation: spin 1s ease-in-out infinite !important;
+      }
+      
+      /* Explicitly prevent h2 animation in streaming container */
+      .ai-summary-streaming h2 {
+        animation: none !important;
+        transition: none !important;
       }
     `;
     document.head.appendChild(styleElement);
@@ -3462,13 +3560,21 @@ function addMarkdownStyles() {
       animation: none !important;
     }
     
+    /* Extra emphasis on headings */
+    .markdown-content h1,
+    .markdown-content h2,
+    .markdown-content h3,
+    .markdown-content h4,
+    .markdown-content h5,
+    .markdown-content h6 {
+      transition: none !important;
+      animation: none !important;
+      will-change: auto !important;
+    }
+    
     /* Re-enable animations for loading elements */
     .ai-summary-spinner {
       animation: spin 1s ease-in-out infinite !important;
-    }
-    
-    .ai-summary-streaming h2 {
-      animation: pulse 1.5s infinite ease-in-out !important;
     }
     
     .streaming-content:after {
