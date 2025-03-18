@@ -909,10 +909,10 @@ function displaySummaryModal(summary, isStreaming = false) {
     content.className = "ai-summary-content markdown-content";
     content.id = "ai-summary-content";
     content.style.lineHeight = "1.7"; // Improved line height for better readability
-    content.style.fontSize = "16px";
+    content.style.fontSize = "18px"; // Increased from 16px to 18px
     content.style.padding = "24px 32px"; // Increased padding for better text containment
     content.style.color = "#0f0f0f"; // YouTube's text color
-    content.style.maxWidth = "800px"; // Maximum width for better readability
+    content.style.maxWidth = "1000px"; // Increased from 800px to 1000px as requested
     content.style.margin = "0 auto"; // Center the content
     content.style.fontFamily = "Roboto, Arial, sans-serif"; // YouTube's font
 
@@ -985,6 +985,10 @@ function displaySummaryModal(summary, isStreaming = false) {
           100% { opacity: 0.8; }
         }
         
+        .streaming-content {
+          font-size: 18px !important; /* Match the main content font size */
+        }
+        
         .streaming-content:after {
           content: '';
           display: inline-block;
@@ -1026,7 +1030,7 @@ function displaySummaryModal(summary, isStreaming = false) {
       const titleElement = document.createElement("div");
       titleElement.className = "video-title stable-element"; // Add the stable-element class
       titleElement.textContent = videoTitle.trim();
-      titleElement.style.fontSize = "22px";
+      titleElement.style.fontSize = "24px"; // Increased from 22px to 24px
       titleElement.style.fontWeight = "500";
       titleElement.style.color = "#0f0f0f";
       titleElement.style.marginBottom = "20px";
