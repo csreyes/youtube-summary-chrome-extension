@@ -242,30 +242,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // Handle summary loading start
         if (message.type === "SUMMARY_LOADING") {
-          console.log(
-            "[YouTube AI Summarizer] Showing modal for streaming summary with ID:",
-            message.responseId
-          );
+          // Show a placeholder while loading
+          if (!document.getElementById("ai-summary-streaming-container")) {
+            const summaryHTML = `
+              <div id="ai-summary-streaming-container" class="ai-summary-streaming">
+                <div class="ai-summary-content markdown-content">
+                  <div id="${message.responseId}" class="streaming-content"></div>
+                </div>
+              </div>
+            `;
+            // Add the CSS animation for the spinner
+            const style = document.createElement("style");
+            style.textContent = `
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `;
+            document.head.appendChild(style);
 
-          // Create a responsive container for streaming
-          const summaryHTML = `
-            <div id="ai-summary-streaming-container" class="ai-summary-streaming">
-              <div id="${message.responseId}" class="streaming-content" data-content=""></div>
-            </div>
-          `;
-
-          // Add the CSS animation for the spinner
-          const style = document.createElement("style");
-          style.textContent = `
-            @keyframes spin {
-              to { transform: rotate(360deg); }
-            }
-          `;
-          document.head.appendChild(style);
-
-          // Display the modal with streaming mode enabled
-          displaySummaryModal({ responseId: message.responseId }, true);
-
+            displaySummaryModal(summaryHTML, true);
+          }
           return false;
         }
 
@@ -291,13 +288,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               // Validate content before storing
               if (typeof fullContent !== "string") {
                 console.error(
-                  "[YouTube AI Summarizer] Invalid content type:",
+                  "[YouTube AI Summarizer] fullContent is not a string:",
                   typeof fullContent
                 );
                 fullContent = String(fullContent || "");
               }
 
-              // Store the content in data attribute for appending later
+              // Store the raw content as a data attribute for future appends
               summaryElement.setAttribute("data-content", fullContent);
 
               // Render the content as Markdown
@@ -306,11 +303,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               } else {
                 summaryElement.innerHTML = "<p>Receiving content...</p>";
               }
-
-              console.log(
-                "[YouTube AI Summarizer] Updated summary chunk, content length:",
-                fullContent.length
-              );
             } catch (error) {
               console.error(
                 "[YouTube AI Summarizer] Error handling chunk:",
@@ -334,42 +326,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               "[YouTube AI Summarizer] summaryElement not found for ID:",
               message.responseId
             );
-
-            // Try to recreate the container if it doesn't exist
-            const content = document.getElementById("ai-summary-content");
-            if (content) {
-              // Check if we need to create the streaming container first
-              let streamingContainer = document.getElementById(
-                "ai-summary-streaming-container"
-              );
-              if (!streamingContainer) {
-                streamingContainer = document.createElement("div");
-                streamingContainer.id = "ai-summary-streaming-container";
-                streamingContainer.className = "ai-summary-streaming";
-                content.appendChild(streamingContainer);
-              }
-
-              // Create the streaming content element
-              const newSummaryElement = document.createElement("div");
-              newSummaryElement.id = message.responseId;
-              newSummaryElement.className = "streaming-content";
-              newSummaryElement.setAttribute(
-                "data-content",
-                message.text || ""
-              );
-              newSummaryElement.innerHTML = renderMarkdown(
-                message.text || "Receiving summary..."
-              );
-
-              streamingContainer.appendChild(newSummaryElement);
-              console.log(
-                "[YouTube AI Summarizer] Created missing summary element:",
-                message.responseId
-              );
-
-              // Re-attach timestamp handlers
-              attachTimestampClickHandlers();
-            }
           }
           return false;
         }
@@ -564,25 +520,6 @@ function showLoadingIndicator() {
     <p class="ai-summary-loading-info">This may take up to 30 seconds depending on the video length</p>
   `;
   content.appendChild(loadingDiv);
-
-  // Add explicit spinner animation style
-  const spinnerStyle = document.createElement("style");
-  spinnerStyle.textContent = `
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    
-    .ai-summary-spinner {
-      display: inline-block;
-      width: 50px;
-      height: 50px;
-      border: 5px solid rgba(204, 0, 0, 0.2);
-      border-radius: 50%;
-      border-top-color: #cc0000;
-      animation: spin 1s ease-in-out infinite !important;
-    }
-  `;
-  document.head.appendChild(spinnerStyle);
 
   modal.appendChild(content);
 
@@ -792,7 +729,7 @@ function displaySummaryModal(summary, isStreaming = false) {
     overlay.style.left = "0";
     overlay.style.width = "100%";
     overlay.style.height = "100%";
-    overlay.style.backgroundColor = "rgba(0, 0, 0, 0.8)"; // Slightly darker overlay for better contrast
+    overlay.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
     overlay.style.display = "flex";
     overlay.style.justifyContent = "center";
     overlay.style.alignItems = "center";
@@ -802,34 +739,31 @@ function displaySummaryModal(summary, isStreaming = false) {
     const modal = document.createElement("div");
     modal.className = "ai-summary-modal";
     modal.style.backgroundColor = "white";
-    modal.style.borderRadius = "12px"; // More rounded corners
-    modal.style.boxShadow = "0 4px 24px rgba(0, 0, 0, 0.4)"; // Enhanced shadow for depth
-    modal.style.width = "85%"; // Slightly wider
-    modal.style.maxWidth = "1000px"; // Increased max width for better readability on wider screens
-    modal.style.maxHeight = "90vh"; // Slightly taller
+    modal.style.borderRadius = "8px";
+    modal.style.boxShadow = "0 2px 10px rgba(0, 0, 0, 0.3)";
+    modal.style.width = "80%";
+    modal.style.maxWidth = "800px"; // Increased max width for longer content
+    modal.style.maxHeight = "85vh"; // Increased max height
     modal.style.display = "flex";
     modal.style.flexDirection = "column";
-    modal.style.fontSize = "16px";
-    modal.style.overflowY = "hidden";
+    modal.style.fontSize = "16px"; // Base font size for better readability
+    modal.style.overflowY = "hidden"; // Hide overflow on the modal itself
 
     // Header with title and close button
     const header = document.createElement("div");
     header.className = "ai-summary-header";
-    header.style.padding = "16px 24px"; // More horizontal padding
+    header.style.padding = "16px 20px";
     header.style.borderBottom = "1px solid #e0e0e0";
     header.style.display = "flex";
     header.style.justifyContent = "space-between";
     header.style.alignItems = "center";
-    header.style.backgroundColor = "#f9f9f9"; // More neutral color that matches YouTube's palette
-    header.style.borderTopLeftRadius = "12px"; // Match border radius
-    header.style.borderTopRightRadius = "12px"; // Match border radius
+    header.style.backgroundColor = "#f0f7ff"; // Light blue header
 
     const title = document.createElement("h3");
     title.textContent = "AI Summary & Chat";
     title.style.margin = "0";
-    title.style.color = "#0f0f0f"; // YouTube's dark text color
+    title.style.color = "#0066cc";
     title.style.fontSize = "20px";
-    title.style.fontWeight = "500"; // YouTube uses this weight for titles
     header.appendChild(title);
 
     const closeBtn = document.createElement("button");
@@ -837,19 +771,12 @@ function displaySummaryModal(summary, isStreaming = false) {
     closeBtn.textContent = "×";
     closeBtn.style.background = "none";
     closeBtn.style.border = "none";
-    closeBtn.style.fontSize = "28px"; // Larger close button
+    closeBtn.style.fontSize = "24px";
     closeBtn.style.cursor = "pointer";
-    closeBtn.style.color = "#606060"; // YouTube's secondary text color
+    closeBtn.style.color = "#0066cc";
     closeBtn.style.padding = "0 5px";
-    closeBtn.style.lineHeight = "0.8"; // Better vertical alignment
     closeBtn.addEventListener("click", () => {
       document.body.removeChild(overlay);
-    });
-    closeBtn.addEventListener("mouseover", () => {
-      closeBtn.style.color = "#0f0f0f"; // Darken on hover
-    });
-    closeBtn.addEventListener("mouseout", () => {
-      closeBtn.style.color = "#606060"; // Return to original color
     });
     header.appendChild(closeBtn);
 
@@ -858,162 +785,218 @@ function displaySummaryModal(summary, isStreaming = false) {
     // Content area with scrolling for longer content
     const contentWrapper = document.createElement("div");
     contentWrapper.style.flexGrow = "1";
-    contentWrapper.style.overflowY = "auto";
-    contentWrapper.style.maxHeight = "calc(90vh - 180px)";
-    contentWrapper.style.scrollbarWidth = "thin"; // Thin scrollbar (Firefox)
-    contentWrapper.style.scrollbarColor = "#c0c0c0 #f1f1f1"; // Scrollbar colors (Firefox)
-
-    // Custom scrollbar for webkit browsers
-    contentWrapper.style.cssText += `
-      &::-webkit-scrollbar {
-        width: 8px;
-      }
-      &::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 4px;
-      }
-      &::-webkit-scrollbar-thumb {
-        background: #c0c0c0;
-        border-radius: 4px;
-      }
-      &::-webkit-scrollbar-thumb:hover {
-        background: #a0a0a0;
-      }
-    `;
+    contentWrapper.style.overflowY = "auto"; // Allow scrolling for content
+    contentWrapper.style.maxHeight = "calc(85vh - 180px)"; // Account for header, footer, and chat input
 
     const content = document.createElement("div");
     content.className = "ai-summary-content markdown-content";
     content.id = "ai-summary-content";
-    content.style.lineHeight = "1.7"; // Improved line height for better readability
+    // Add some extra styling for better readability
+    content.style.lineHeight = "1.6";
     content.style.fontSize = "16px";
-    content.style.padding = "24px 32px"; // Increased padding for better text containment
-    content.style.color = "#0f0f0f"; // YouTube's text color
-    content.style.maxWidth = "800px"; // Maximum width for better readability
-    content.style.margin = "0 auto"; // Center the content
-    content.style.fontFamily = "Roboto, Arial, sans-serif"; // YouTube's font
+    content.style.padding = "20px 24px"; // Increased padding
+    content.style.color = "#333";
 
-    // If we're in streaming mode, add the streaming container
+    // If we're in streaming mode, just insert the HTML directly
     if (isStreaming) {
-      console.log(
-        "[YouTube AI Summarizer] Setting up streaming summary container"
-      );
-      // Parse the HTML string if provided
-      if (
-        typeof summary === "string" &&
-        summary.includes("ai-summary-streaming-container")
-      ) {
-        content.innerHTML = summary;
-      } else {
-        // Create a generic streaming container
-        const streamingContainer = document.createElement("div");
-        streamingContainer.id = "ai-summary-streaming-container";
-        streamingContainer.className = "ai-summary-streaming";
+      if (typeof summary !== "string") {
+        console.error(
+          "[YouTube AI Summarizer] Expected string HTML for streaming mode but got:",
+          typeof summary
+        );
+        summary = String(summary || "");
+      }
+      content.innerHTML = summary;
+    } else {
+      // Process the summary based on its type
+      try {
+        // Check if we have a structured JSON summary
+        if (summary.type === "json_summary" && summary.data) {
+          // Render the JSON summary with our enhanced formatter
+          renderJsonSummary(summary.data, content);
+        } else if (summary.type === "text_summary" && summary.text) {
+          // Handle the text summary format
+          renderTextSummary(summary.text, content);
+        } else if (typeof summary === "string") {
+          // Check for error message
+          if (summary.startsWith("Error:")) {
+            const errorDiv = document.createElement("div");
+            errorDiv.className = "ai-summary-error";
+            errorDiv.style.color = "#d32f2f";
+            errorDiv.style.padding = "15px";
+            errorDiv.style.backgroundColor = "#ffebee";
+            errorDiv.style.borderRadius = "4px";
+            errorDiv.innerText = summary;
+            content.appendChild(errorDiv);
+          }
+          // Handle markdown formatting - ADD TYPE CHECK HERE
+          else if (
+            typeof summary === "string" &&
+            (summary.includes("#") ||
+              summary.includes("-") ||
+              summary.includes("*") ||
+              summary.includes(">"))
+          ) {
+            // This looks like Markdown - use our new Markdown renderer
+            content.innerHTML = renderMarkdown(summary);
+          } else if (typeof summary === "string" && summary.includes("•")) {
+            // This is likely a bullet list - use special formatting
+            content.innerHTML = formatBulletedSummary(summary);
+          } else {
+            // Simple string summary with enhanced formatting
+            try {
+              const paragraphs =
+                typeof summary === "string" ? summary.split("\n\n") : [];
+              paragraphs.forEach((paragraph) => {
+                if (paragraph.trim()) {
+                  // Check for timestamps in the paragraph
+                  const p = document.createElement("div");
+                  p.style.marginBottom = "16px";
 
-        // Extract the response ID from the summary if available
-        let responseId = "";
-        if (typeof summary === "object" && summary.responseId) {
-          responseId = summary.responseId;
-        } else if (
-          typeof summary === "string" &&
-          summary.includes("responseId")
-        ) {
-          try {
-            const match = summary.match(/id="([^"]+)"/);
-            if (match && match[1]) {
-              responseId = match[1];
+                  // Process potential timestamps
+                  const processedPara = processTimestampsInText(paragraph);
+                  p.innerHTML = processedPara;
+
+                  content.appendChild(p);
+                }
+              });
+            } catch (error) {
+              console.error(
+                "[YouTube AI Summarizer] Error formatting paragraphs:",
+                error
+              );
+              content.innerHTML = `<p>Error formatting content: ${error.message}</p>`;
+              if (typeof summary === "string") {
+                const rawPara = document.createElement("p");
+                rawPara.style.whiteSpace = "pre-wrap";
+                rawPara.textContent = summary;
+                content.appendChild(rawPara);
+              }
             }
-          } catch (e) {
-            console.error(
-              "[YouTube AI Summarizer] Error extracting responseId:",
-              e
-            );
-            responseId = "summary-" + Date.now();
+          }
+        } else if (summary && typeof summary === "object") {
+          // Additional logging for debugging object structure
+          console.log(
+            "[YouTube AI Summarizer] Summary object structure:",
+            JSON.stringify(summary).substring(0, 500)
+          );
+
+          // Handle structured summary objects
+          if (summary.html) {
+            // Add timestamp processing to HTML content if possible
+            content.innerHTML = enhanceHtmlWithTimestampsStyling(summary.html);
+          } else if (summary.text || summary.summary) {
+            // Use summary field if available (for backward compatibility)
+            const summaryText = summary.text || summary.summary;
+
+            // Create formatted sections with enhanced styling
+            const mainSummary = document.createElement("div");
+            mainSummary.className = "ai-summary-section";
+            mainSummary.style.fontSize = "16px";
+            mainSummary.style.lineHeight = "1.6";
+            mainSummary.style.marginBottom = "20px";
+
+            // Process potential timestamps in main summary
+            mainSummary.innerHTML = processTimestampsInText(summaryText);
+            content.appendChild(mainSummary);
+
+            // Add any additional sections
+            if (summary.keyPoints && Array.isArray(summary.keyPoints)) {
+              const keyPointsSection = document.createElement("div");
+              keyPointsSection.className = "ai-summary-key-points";
+              keyPointsSection.style.backgroundColor = "#f0f7ff";
+              keyPointsSection.style.padding = "16px";
+              keyPointsSection.style.borderRadius = "8px";
+              keyPointsSection.style.marginTop = "20px";
+
+              const keyPointsTitle = document.createElement("h4");
+              keyPointsTitle.textContent = "Key Points";
+              keyPointsTitle.style.marginTop = "0";
+              keyPointsTitle.style.marginBottom = "15px";
+              keyPointsTitle.style.color = "#0066cc";
+              keyPointsTitle.style.fontSize = "18px";
+              keyPointsSection.appendChild(keyPointsTitle);
+
+              const keyPointsList = document.createElement("ul");
+              keyPointsList.style.paddingLeft = "24px";
+              keyPointsList.style.marginBottom = "0";
+
+              summary.keyPoints.forEach((point) => {
+                const li = document.createElement("li");
+                li.style.marginBottom = "10px";
+                li.style.position = "relative";
+
+                // Process potential timestamps in key points
+                li.innerHTML = processTimestampsInText(point);
+                keyPointsList.appendChild(li);
+              });
+              keyPointsSection.appendChild(keyPointsList);
+              content.appendChild(keyPointsSection);
+            }
+          } else {
+            // Fallback for unknown object structure - try to extract any text content
+            let extractedText = "";
+
+            // Look for any property that might contain the summary text
+            for (const key in summary) {
+              if (
+                typeof summary[key] === "string" &&
+                summary[key].length > 50
+              ) {
+                extractedText = summary[key];
+                break;
+              }
+            }
+
+            if (extractedText) {
+              const p = document.createElement("div");
+              p.style.marginBottom = "16px";
+              p.style.lineHeight = "1.6";
+
+              // Process potential timestamps in extracted text
+              p.innerHTML = processTimestampsInText(extractedText);
+              content.appendChild(p);
+            } else {
+              // Last resort - stringify the object
+              const p = document.createElement("p");
+              p.innerText = "Summary: " + JSON.stringify(summary, null, 2);
+              content.appendChild(p);
+            }
           }
         } else {
-          responseId = "summary-" + Date.now();
+          // Handle unexpected summary type
+          const errorDiv = document.createElement("div");
+          errorDiv.className = "ai-summary-error";
+          errorDiv.style.color = "#d32f2f";
+          errorDiv.style.padding = "15px";
+          errorDiv.style.backgroundColor = "#ffebee";
+          errorDiv.style.borderRadius = "4px";
+          errorDiv.innerText = "Error: Received unexpected summary format.";
+          content.appendChild(errorDiv);
         }
-
-        const streamingContent = document.createElement("div");
-        streamingContent.id = responseId;
-        streamingContent.className = "streaming-content";
-        streamingContent.setAttribute("data-content", "");
-        streamingContent.innerHTML = "<p>Preparing summary...</p>";
-
-        streamingContainer.appendChild(streamingContent);
-        content.appendChild(streamingContainer);
-
-        console.log(
-          "[YouTube AI Summarizer] Created streaming container with ID:",
-          responseId
-        );
-      }
-
-      // Also create the chat container
-      const chatContainer = document.createElement("div");
-      chatContainer.id = "chat-messages-container";
-      chatContainer.style.marginTop = "20px";
-      content.appendChild(chatContainer);
-    } else {
-      // Regular summary display for non-streaming mode
-      // Get video title from the page
-      const videoTitle =
-        document.querySelector("h1.ytd-watch-metadata")?.textContent ||
-        document.querySelector("h1.title")?.textContent ||
-        "Video Summary";
-
-      // Add the video title as a styled header
-      const titleElement = document.createElement("div");
-      titleElement.className = "video-title";
-      titleElement.textContent = videoTitle.trim();
-      titleElement.style.fontSize = "22px";
-      titleElement.style.fontWeight = "500";
-      titleElement.style.color = "#0f0f0f";
-      titleElement.style.marginBottom = "20px";
-      titleElement.style.paddingBottom = "12px";
-      titleElement.style.borderBottom = "1px solid #e0e0e0";
-      titleElement.style.lineHeight = "1.4";
-      // Explicitly prevent transitions and animations
-      titleElement.style.transition = "none";
-      titleElement.style.animation = "none";
-      // Fix rerendering by forcing layout calculation once
-      titleElement.style.willChange = "auto";
-      content.appendChild(titleElement);
-
-      // For string summaries, render with markdown
-      if (typeof summary === "string") {
-        content.innerHTML += renderMarkdown(summary);
-      }
-      // For JSON summaries, use the structured renderer
-      else if (summary && summary.type === "json_summary" && summary.data) {
-        try {
-          renderJsonSummary(summary.data, content);
-          console.log(
-            "[YouTube AI Summarizer] Rendered structured JSON summary"
-          );
-        } catch (error) {
-          console.error(
-            "[YouTube AI Summarizer] Error rendering JSON summary:",
-            error
-          );
-          content.innerHTML +=
-            "<p>Error rendering summary. Please try again.</p>";
-        }
-      } else {
+      } catch (error) {
         console.error(
-          "[YouTube AI Summarizer] Unknown summary format:",
-          typeof summary,
-          summary
+          "[YouTube AI Summarizer] Error processing summary:",
+          error
         );
-        content.innerHTML +=
-          "<p>Error: Unknown summary format. Please try again.</p>";
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "ai-summary-error";
+        errorDiv.style.color = "#d32f2f";
+        errorDiv.style.padding = "15px";
+        errorDiv.style.backgroundColor = "#ffebee";
+        errorDiv.style.borderRadius = "4px";
+        errorDiv.innerText = "Error displaying summary: " + error.message;
+        content.appendChild(errorDiv);
       }
-
-      // Add chat container for regular summaries as well
-      const chatContainer = document.createElement("div");
-      chatContainer.id = "chat-messages-container";
-      chatContainer.style.marginTop = "20px";
-      content.appendChild(chatContainer);
     }
+
+    content.appendChild(chatSeparator);
+
+    // Add chat message container
+    const chatContainer = document.createElement("div");
+    chatContainer.id = "chat-messages-container";
+    chatContainer.style.marginTop = "20px"; // Increased margin to maintain spacing
+    content.appendChild(chatContainer);
 
     contentWrapper.appendChild(content);
     modal.appendChild(contentWrapper);
@@ -1022,71 +1005,31 @@ function displaySummaryModal(summary, isStreaming = false) {
     const chatInputSection = document.createElement("div");
     chatInputSection.className = "ai-summary-chat-input";
     chatInputSection.style.borderTop = "1px solid #e0e0e0";
-    chatInputSection.style.padding = "16px 24px"; // Increased padding
+    chatInputSection.style.padding = "15px 20px";
     chatInputSection.style.display = "flex";
     chatInputSection.style.alignItems = "center";
-    chatInputSection.style.backgroundColor = "#f9f9f9"; // Match YouTube's color scheme
-    chatInputSection.style.borderBottomLeftRadius = "12px"; // Match modal border radius
-    chatInputSection.style.borderBottomRightRadius = "12px"; // Match modal border radius
-
-    // Create form to handle enter key submission
-    const chatForm = document.createElement("form");
-    chatForm.id = "ai-chat-form";
-    chatForm.style.display = "flex";
-    chatForm.style.width = "100%";
-    chatForm.style.alignItems = "center";
-    chatForm.style.gap = "12px";
-
-    // Prevent default form submission
-    chatForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const chatButton = document.getElementById("ai-chat-button");
-      if (chatButton && !chatButton.disabled) {
-        console.log(
-          "[YouTube AI Summarizer] Form submitted, calling handleChatSubmit"
-        );
-        handleChatSubmit();
-      }
-      return false;
-    });
+    chatInputSection.style.backgroundColor = "#f8f8f8";
+    chatInputSection.style.borderBottomLeftRadius = "8px";
+    chatInputSection.style.borderBottomRightRadius = "8px";
 
     const chatInput = document.createElement("textarea");
     chatInput.id = "ai-chat-input";
     chatInput.placeholder = "Ask a question about the video...";
     chatInput.style.flexGrow = "1";
-    chatInput.style.border = "1px solid #d3d3d3"; // YouTube's border color
-    chatInput.style.borderRadius = "24px"; // More rounded, like YouTube's search input
-    chatInput.style.padding = "12px 16px";
+    chatInput.style.border = "1px solid #ddd";
+    chatInput.style.borderRadius = "4px";
+    chatInput.style.padding = "10px";
     chatInput.style.fontSize = "14px";
     chatInput.style.resize = "none";
     chatInput.style.minHeight = "40px";
     chatInput.style.maxHeight = "80px";
-    chatInput.style.fontFamily = "Roboto, Arial, sans-serif"; // YouTube's font
-    chatInput.style.outline = "none";
-    chatInput.style.transition = "border-color 0.2s, box-shadow 0.2s";
-
-    // Add focus effects
-    chatInput.addEventListener("focus", () => {
-      chatInput.style.border = "1px solid #065fd4"; // YouTube blue
-      chatInput.style.boxShadow = "0 0 0 1px rgba(6, 95, 212, 0.3)";
-    });
-
-    chatInput.addEventListener("blur", () => {
-      chatInput.style.border = "1px solid #d3d3d3";
-      chatInput.style.boxShadow = "none";
-    });
-
-    // Handle Enter key (submit) and Shift+Enter (new line)
+    chatInput.style.fontFamily = "inherit";
     chatInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        console.log("[YouTube AI Summarizer] Enter key pressed in chat input");
         const chatButton = document.getElementById("ai-chat-button");
         if (chatButton && !chatButton.disabled) {
-          console.log(
-            "[YouTube AI Summarizer] Calling handleChatSubmit from Enter key handler"
-          );
-          handleChatSubmit();
+          chatButton.click();
         }
       }
     });
@@ -1100,57 +1043,29 @@ function displaySummaryModal(summary, isStreaming = false) {
 
     const chatButton = document.createElement("button");
     chatButton.id = "ai-chat-button";
-    chatButton.type = "button"; // Explicitly set type to button
     chatButton.textContent = "Send";
-    chatButton.style.marginLeft = "12px";
-    chatButton.style.backgroundColor = "#065fd4"; // YouTube blue
+    chatButton.style.marginLeft = "10px";
+    chatButton.style.backgroundColor = "#0066cc";
     chatButton.style.color = "white";
     chatButton.style.border = "none";
-    chatButton.style.borderRadius = "18px"; // More rounded, like YouTube buttons
-    chatButton.style.padding = "10px 16px";
+    chatButton.style.borderRadius = "4px";
+    chatButton.style.padding = "10px 20px";
     chatButton.style.fontSize = "14px";
     chatButton.style.fontWeight = "500";
     chatButton.style.cursor = "pointer";
     chatButton.style.minWidth = "80px";
-    chatButton.style.transition = "background-color 0.2s";
+    chatButton.addEventListener("click", handleChatSubmit);
 
-    // Hover effect
-    chatButton.addEventListener("mouseover", () => {
-      chatButton.style.backgroundColor = "#0356c7"; // Darker blue on hover
-    });
-
-    chatButton.addEventListener("mouseout", () => {
-      chatButton.style.backgroundColor = "#065fd4"; // Back to original blue
-    });
-
-    // Explicitly add click handler and ensure it's working
-    chatButton.onclick = function (e) {
-      e.preventDefault();
-      console.log(
-        "[YouTube AI Summarizer] Chat button clicked via inline handler"
-      );
-      if (window.youtubeSummarizerHandleChatSubmit) {
-        window.youtubeSummarizerHandleChatSubmit();
-      } else {
-        handleChatSubmit();
-      }
-    };
-
-    chatForm.appendChild(chatInput);
-    chatForm.appendChild(chatButton);
-    chatInputSection.appendChild(chatForm);
+    chatInputSection.appendChild(chatInput);
+    chatInputSection.appendChild(chatButton);
 
     modal.appendChild(chatInputSection);
 
     // Add footer with attribution
     const footer = document.createElement("div");
     footer.className = "ai-summary-footer";
-    footer.style.padding = "8px 24px";
-    footer.style.textAlign = "center";
-    footer.style.fontSize = "12px";
-    footer.style.color = "#606060"; // YouTube's secondary text color
     footer.innerHTML =
-      "<p style='margin: 0;'>Powered by YouTube AI Summarizer with OpenRouter</p>";
+      "<p>Powered by YouTube AI Summarizer with OpenRouter</p>";
     modal.appendChild(footer);
 
     // Add to DOM
@@ -1179,47 +1094,6 @@ function displaySummaryModal(summary, isStreaming = false) {
         document.removeEventListener("keydown", escapeHandler);
       }
     });
-
-    // Add animation keyframes for loading indicators
-    const styleElement = document.createElement("style");
-    styleElement.textContent = `
-      @keyframes pulse {
-        0%, 100% { opacity: 0.4; transform: scale(0.8); }
-        50% { opacity: 1; transform: scale(1); }
-      }
-      
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      
-      /* Disable animations for video title to prevent rerendering issues */
-      .video-title {
-        transition: none !important;
-        animation: none !important;
-        will-change: auto;
-      }
-      
-      /* Re-enable animations for the loading spinner */
-      .ai-summary-spinner {
-        animation: spin 1s ease-in-out infinite !important;
-      }
-      
-      .ai-summary-streaming h2 {
-        animation: pulse 1.5s infinite ease-in-out !important;
-      }
-      
-      .streaming-content:after {
-        animation: blink 1s infinite !important;
-      }
-      
-      .blinking-cursor {
-        animation: blink 1s infinite !important;
-      }
-    `;
-    document.head.appendChild(styleElement);
-
-    // Delete the entire duplicate chat interface section that was added incorrectly
-    // ... existing code ...
   } catch (error) {
     console.error(
       "[YouTube AI Summarizer] Error displaying summary modal:",
@@ -1237,79 +1111,62 @@ function displaySummaryModal(summary, isStreaming = false) {
 
 // Function to handle chat submission
 async function handleChatSubmit() {
-  console.log("[YouTube AI Summarizer] Chat submit button clicked");
-
   const chatInput = document.getElementById("ai-chat-input");
   const chatButton = document.getElementById("ai-chat-button");
   const chatContainer = document.getElementById("chat-messages-container");
 
-  if (!chatInput || !chatContainer) {
-    console.error("[YouTube AI Summarizer] Chat input or container not found");
-    return;
-  }
+  if (!chatInput || !chatContainer) return;
 
   const userMessage = chatInput.value.trim();
-  if (!userMessage) {
-    console.log("[YouTube AI Summarizer] Empty message, ignoring");
-    return;
-  }
+  if (!userMessage) return;
 
   // Disable input and button
   chatInput.disabled = true;
   chatButton.disabled = true;
   chatButton.textContent = "Sending...";
 
+  // Display user message
+  addChatMessage(userMessage, "user");
+
+  // Add to conversation history
+  if (!window.conversationHistory) {
+    window.conversationHistory = [];
+    console.log("[YouTube AI Summarizer] Initialized new conversation history");
+  } else {
+    console.log(
+      "[YouTube AI Summarizer] Current conversation history length:",
+      window.conversationHistory.length,
+      "entries:",
+      window.conversationHistory.map((msg) => ({
+        role: msg.role,
+        id: msg.id || "none",
+      }))
+    );
+  }
+
+  // Fix: Create a fresh copy of the conversation history for each request
+  // This prevents the same history object from being reused across requests
+  const currentHistory = JSON.parse(JSON.stringify(window.conversationHistory));
+  const userMessageId = "user-message-" + Date.now();
+  currentHistory.push({
+    role: "user",
+    content: userMessage,
+    id: userMessageId,
+  });
+  window.conversationHistory = currentHistory;
+
+  console.log(
+    "[YouTube AI Summarizer] Updated conversation history with user message:",
+    userMessageId,
+    "New length:",
+    window.conversationHistory.length
+  );
+
+  // Create streaming response container
+  const responseId = "response-" + Date.now();
+  addChatMessage("", "assistant", responseId);
+
   try {
-    console.log(
-      "[YouTube AI Summarizer] Processing chat message:",
-      userMessage
-    );
-
-    // Display user message
-    addChatMessage(userMessage, "user");
-
-    // Add to conversation history
-    if (!window.conversationHistory) {
-      window.conversationHistory = [];
-      console.log(
-        "[YouTube AI Summarizer] Initialized new conversation history"
-      );
-    } else {
-      console.log(
-        "[YouTube AI Summarizer] Current conversation history length:",
-        window.conversationHistory.length,
-        "entries:",
-        window.conversationHistory.map((msg) => ({
-          role: msg.role,
-          id: msg.id || "none",
-        }))
-      );
-    }
-
-    // Fix: Create a fresh copy of the conversation history for each request
-    // This prevents the same history object from being reused across requests
-    const currentHistory = JSON.parse(
-      JSON.stringify(window.conversationHistory)
-    );
-    const userMessageId = "user-message-" + Date.now();
-    currentHistory.push({
-      role: "user",
-      content: userMessage,
-      id: userMessageId,
-    });
-    window.conversationHistory = currentHistory;
-
-    console.log(
-      "[YouTube AI Summarizer] Updated conversation history with user message:",
-      userMessageId,
-      "New length:",
-      window.conversationHistory.length
-    );
-
-    // Create streaming response container
-    const responseId = "response-" + Date.now();
-    addChatMessage("", "assistant", responseId);
-
     // Get video metadata for context
     const videoMetadata = getVideoMetadata();
 
@@ -1321,13 +1178,6 @@ async function handleChatSubmit() {
     });
 
     // Send request to background script for streaming response
-    console.log("[YouTube AI Summarizer] Sending chrome.runtime message");
-
-    // Ensure we have chrome object available
-    if (typeof chrome === "undefined" || !chrome.runtime) {
-      throw new Error("Chrome runtime not available");
-    }
-
     const response = await chrome.runtime
       .sendMessage({
         type: "CHAT_MESSAGE",
@@ -1409,51 +1259,29 @@ async function handleChatSubmit() {
 // Function to add a chat message to the container
 function addChatMessage(message, role, id = null) {
   const chatContainer = document.getElementById("chat-messages-container");
-  if (!chatContainer) {
-    console.warn(
-      "[YouTube AI Summarizer] Chat container not found, creating one"
-    );
-    // Create the container in the ai-summary-content if it exists
-    const content = document.getElementById("ai-summary-content");
-    if (content) {
-      const newChatContainer = document.createElement("div");
-      newChatContainer.id = "chat-messages-container";
-      newChatContainer.style.display = "flex";
-      newChatContainer.style.flexDirection = "column";
-      newChatContainer.style.gap = "8px";
-      content.appendChild(newChatContainer);
-      return addChatMessage(message, role, id); // Retry with new container
-    }
-    return null; // Can't find content element either
-  }
+  if (!chatContainer) return;
 
   const messageElement = document.createElement("div");
   messageElement.className = "chat-message " + role;
   if (id) messageElement.id = id;
 
   // Style based on role
-  messageElement.style.padding = "12px 16px";
-  messageElement.style.marginBottom = "12px";
-  messageElement.style.borderRadius = "18px"; // More rounded corners like YouTube comments
+  messageElement.style.padding = "10px 15px";
+  messageElement.style.marginBottom = "10px";
+  messageElement.style.borderRadius = "8px";
   messageElement.style.maxWidth = "85%";
   messageElement.style.wordBreak = "break-word";
-  messageElement.style.boxShadow = "0 1px 2px rgba(0,0,0,0.1)"; // Subtle shadow for depth
-  messageElement.style.lineHeight = "1.5";
-  messageElement.style.fontSize = "14px";
-  messageElement.style.fontFamily = "Roboto, Arial, sans-serif"; // YouTube's font
 
   if (role === "user") {
     messageElement.style.alignSelf = "flex-end";
-    messageElement.style.backgroundColor = "#065fd4"; // YouTube blue color
+    messageElement.style.backgroundColor = "#0066cc";
     messageElement.style.color = "white";
     messageElement.style.marginLeft = "auto";
-    messageElement.style.fontWeight = "400";
     messageElement.textContent = message;
   } else {
     messageElement.style.alignSelf = "flex-start";
-    messageElement.style.backgroundColor = "#f2f2f2"; // Lighter gray for assistant messages
-    messageElement.style.color = "#0f0f0f"; // YouTube's text color
-    messageElement.style.border = "1px solid #e5e5e5"; // Subtle border
+    messageElement.style.backgroundColor = "#f0f0f0";
+    messageElement.style.color = "#333";
     messageElement.classList.add("markdown-content");
 
     // Parse markdown for assistant messages
@@ -1470,26 +1298,13 @@ function addChatMessage(message, role, id = null) {
   // Make container flex for alignment
   chatContainer.style.display = "flex";
   chatContainer.style.flexDirection = "column";
-  chatContainer.style.gap = "8px"; // Add some spacing between messages
 
   chatContainer.appendChild(messageElement);
 
-  // Make the chat history container visible if it was hidden
-  const chatHistoryContainer = document.getElementById(
-    "chat-messages-container"
-  ).parentElement;
-  if (chatHistoryContainer && chatHistoryContainer.style.display === "none") {
-    chatHistoryContainer.style.display = "block";
-  }
-
-  // Improved scrolling to the new message
+  // Scroll to the new message
   const contentWrapper = document.querySelector(".ai-summary-content");
   if (contentWrapper) {
-    // Use setTimeout to ensure the DOM has updated before scrolling
-    setTimeout(() => {
-      contentWrapper.scrollTop = contentWrapper.scrollHeight;
-      console.log("[YouTube AI Summarizer] Auto-scrolled to new message");
-    }, 10);
+    contentWrapper.scrollTop = contentWrapper.scrollHeight;
   }
 
   return messageElement;
@@ -1566,25 +1381,10 @@ function updateStreamingMessage(id, content, isAppend = false) {
     // Render as Markdown
     messageElement.innerHTML = renderMarkdown(fullContent);
 
-    // Improved auto-scrolling for streaming content
+    // Scroll to ensure visible
     const contentWrapper = document.querySelector(".ai-summary-content");
     if (contentWrapper) {
-      // Check if user is already at the bottom before scrolling
-      const isAtBottom =
-        Math.abs(
-          contentWrapper.scrollHeight -
-            contentWrapper.scrollTop -
-            contentWrapper.clientHeight
-        ) < 50; // Within 50px of bottom is considered "at bottom"
-
-      // Only auto-scroll if user was already at the bottom or this is the first message
-      if (isAtBottom || isAppend) {
-        // Use setTimeout to ensure the DOM has updated before scrolling
-        setTimeout(() => {
-          contentWrapper.scrollTop = contentWrapper.scrollHeight;
-          console.log("[YouTube AI Summarizer] Auto-scrolled chat to bottom");
-        }, 10);
-      }
+      contentWrapper.scrollTop = contentWrapper.scrollHeight;
     }
 
     // Add to conversation history if complete
@@ -3143,7 +2943,7 @@ function renderMarkdown(markdownText) {
       // Headers - h1, h2, h3
       html = html.replace(
         /^### (.*$)/gim,
-        '<h3 style="font-size: 18px; color: #303030; margin-top: 20px; margin-bottom: 12px; font-weight: 600; transition: none; animation: none;">$1</h3>'
+        '<h3 style="font-size: 18px; color: #555555; margin-top: 20px; margin-bottom: 10px;">$1</h3>'
       );
     } catch (e) {
       console.error("[YouTube AI Summarizer] Error processing h3 headers:", e);
@@ -3152,7 +2952,7 @@ function renderMarkdown(markdownText) {
     try {
       html = html.replace(
         /^## (.*$)/gim,
-        '<h2 style="font-size: 20px; color: #0f0f0f; margin-top: 24px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; font-weight: 600; transition: none; animation: none;">$1</h2>'
+        '<h2 style="font-size: 20px; color: #333333; margin-top: 24px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e0e0e0;">$1</h2>'
       );
     } catch (e) {
       console.error("[YouTube AI Summarizer] Error processing h2 headers:", e);
@@ -3161,7 +2961,7 @@ function renderMarkdown(markdownText) {
     try {
       html = html.replace(
         /^# (.*$)/gim,
-        '<h1 style="font-size: 24px; color: #0f0f0f; margin-top: 28px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #e0e0e0; font-weight: 600; transition: none; animation: none;">$1</h1>'
+        '<h1 style="font-size: 22px; color: #0066cc; margin-top: 28px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e0e0e0;">$1</h1>'
       );
     } catch (e) {
       console.error("[YouTube AI Summarizer] Error processing h1 headers:", e);
@@ -3221,7 +3021,7 @@ function renderMarkdown(markdownText) {
     try {
       html = html.replace(
         /\n\n/gim,
-        '</p><p style="margin-top: 16px; margin-bottom: 16px; line-height: 1.6; transition: none; animation: none;">'
+        '</p><p style="margin-top: 16px; margin-bottom: 16px; line-height: 1.6;">'
       );
     } catch (e) {
       console.error("[YouTube AI Summarizer] Error processing line breaks:", e);
@@ -3233,7 +3033,7 @@ function renderMarkdown(markdownText) {
       html = html.replace(/<\/li>/gim, "</||li>");
       html = html.replace(
         /^(.+(?=<\/p>|$))/gim,
-        '<p style="margin-top: 16px; margin-bottom: 16px; line-height: 1.6; transition: none; animation: none;">$1</p>'
+        '<p style="margin-top: 16px; margin-bottom: 16px; line-height: 1.6;">$1</p>'
       );
       html = html.replace(/<\|\|li/gim, "<li"); // Restore list items
       html = html.replace(/<\/\|\|li>/gim, "</li>");
@@ -3262,12 +3062,11 @@ function renderMarkdown(markdownText) {
             if (!inList) {
               // Start a new list
               newHtml +=
-                '<ul style="padding-left: 24px; margin-top: 12px; margin-bottom: 16px; transition: none; animation: none;"><li style="margin-bottom: 8px; transition: none; animation: none;">';
+                '<ul style="padding-left: 24px; margin-top: 12px; margin-bottom: 16px;"><li style="margin-bottom: 8px;">';
               inList = true;
             } else {
               // Continue existing list
-              newHtml +=
-                '<li style="margin-bottom: 8px; transition: none; animation: none;">';
+              newHtml += '<li style="margin-bottom: 8px;">';
             }
 
             // Add the list item content and end tag
@@ -3331,152 +3130,56 @@ function addMarkdownStyles() {
   const styleElement = document.createElement("style");
   styleElement.textContent = `
     .markdown-content h1, .markdown-content h2, .markdown-content h3 {
-      margin-top: 24px;
-      margin-bottom: 16px;
-      color: #0f0f0f; 
+      margin-top: 20px;
+      margin-bottom: 12px;
+      color: #0066cc;
       font-weight: 600;
-      line-height: 1.3;
-      transition: none !important;
-      animation: none !important;
     }
     
     .markdown-content h1 {
-      font-size: 24px;
+      font-size: 22px;
       border-bottom: 1px solid #e0e0e0;
-      padding-bottom: 12px;
-      margin-top: 32px;
-      transition: none !important;
-      animation: none !important;
+      padding-bottom: 8px;
     }
     
     .markdown-content h2 {
       font-size: 20px;
-      padding-bottom: 6px;
-      border-bottom: 1px solid #f0f0f0;
-      transition: none !important;
-      animation: none !important;
     }
     
     .markdown-content h3 {
       font-size: 18px;
-      color: #303030;
-      transition: none !important;
-      animation: none !important;
     }
     
     .markdown-content p {
       margin-bottom: 16px;
-      line-height: 1.7;
-      font-size: 16px;
-      color: #0f0f0f;
-      transition: none !important;
-      animation: none !important;
+      line-height: 1.6;
     }
     
     .markdown-content ul, .markdown-content ol {
-      padding-left: 28px;
-      margin-bottom: 20px;
-      margin-top: 12px;
-      transition: none !important;
-      animation: none !important;
+      padding-left: 24px;
+      margin-bottom: 16px;
     }
     
     .markdown-content li {
-      margin-bottom: 10px;
-      line-height: 1.6;
-      transition: none !important;
-      animation: none !important;
+      margin-bottom: 8px;
     }
     
     .markdown-content blockquote {
-      border-left: 4px solid #c00;
-      padding: 12px 16px;
-      margin: 16px 0;
-      background-color: #f9f9f9;
-      color: #303030;
-      border-radius: 0 4px 4px 0;
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    .markdown-content a {
-      color: #065fd4;
-      text-decoration: none;
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    .markdown-content a:hover {
-      text-decoration: underline;
+      border-left: 4px solid #0066cc;
+      padding-left: 16px;
+      margin-left: 0;
+      margin-right: 0;
+      color: #555;
     }
     
     .markdown-content strong {
       font-weight: 600;
-      color: #0f0f0f;
-      transition: none !important;
-      animation: none !important;
     }
     
-    .markdown-content em {
-      font-style: italic;
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    .markdown-content .timestamp {
-      color: #065fd4;
-      font-weight: 500;
-      cursor: pointer;
-      text-decoration: none;
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    .markdown-content .timestamp:hover {
+    .markdown-content .timestamp-link {
+      color: #0066cc;
       text-decoration: underline;
-    }
-    
-    /* Make the first heading touch the top with less margin if it's first */
-    .markdown-content h1:first-child, 
-    .markdown-content h2:first-child, 
-    .markdown-content h3:first-child {
-      margin-top: 8px;
-    }
-    
-    /* Special styling for video title */
-    .markdown-content .video-title {
-      font-size: 24px;
-      font-weight: 500;
-      color: #0f0f0f;
-      margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid #e0e0e0;
-      line-height: 1.4;
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    /* Disable animations in markdown content except for specific elements */
-    .markdown-content * {
-      transition: none !important;
-      animation: none !important;
-    }
-    
-    /* Re-enable animations for loading elements */
-    .ai-summary-spinner {
-      animation: spin 1s ease-in-out infinite !important;
-    }
-    
-    .ai-summary-streaming h2 {
-      animation: pulse 1.5s infinite ease-in-out !important;
-    }
-    
-    .streaming-content:after {
-      animation: blink 1s infinite !important;
-    }
-    
-    .blinking-cursor {
-      animation: blink 1s infinite !important;
+      font-weight: 600;
     }
   `;
   document.head.appendChild(styleElement);
@@ -3484,57 +3187,3 @@ function addMarkdownStyles() {
 
 // Make sure to add styles when content script initializes
 addMarkdownStyles();
-
-// Wait for DOM to be ready and assign chat handlers
-document.addEventListener("DOMContentLoaded", function () {
-  console.log(
-    "[YouTube AI Summarizer] DOM content loaded, assigning chat handlers"
-  );
-
-  // Add a global handler for chat submission that can be accessed from anywhere
-  window.youtubeSummarizerHandleChatSubmit = function () {
-    console.log("[YouTube AI Summarizer] Global chat submit handler called");
-    const chatInput = document.getElementById("ai-chat-input");
-    const chatButton = document.getElementById("ai-chat-button");
-
-    if (!chatInput) {
-      console.error(
-        "[YouTube AI Summarizer] Chat input not found in global handler"
-      );
-      return;
-    }
-
-    const userMessage = chatInput.value.trim();
-    if (!userMessage) {
-      console.log(
-        "[YouTube AI Summarizer] Empty message, ignoring in global handler"
-      );
-      return;
-    }
-
-    console.log(
-      "[YouTube AI Summarizer] Calling handleChatSubmit from global handler"
-    );
-    handleChatSubmit();
-  };
-
-  // Add click event to document for chat button
-  document.addEventListener("click", function (e) {
-    if (e.target && e.target.id === "ai-chat-button") {
-      console.log(
-        "[YouTube AI Summarizer] Chat button clicked via document event delegation"
-      );
-      window.youtubeSummarizerHandleChatSubmit();
-    }
-  });
-});
-
-// Update the button creation code for chat
-// (Don't update this directly, just use this in the displaySummaryModal function)
-// chatButton.onclick = function(e) {
-//   e.preventDefault();
-//   console.log("[YouTube AI Summarizer] Chat button clicked via inline handler");
-//   window.youtubeSummarizerHandleChatSubmit ?
-//     window.youtubeSummarizerHandleChatSubmit() :
-//     handleChatSubmit();
-// };
