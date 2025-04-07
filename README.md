@@ -1,13 +1,29 @@
-# YouTube AI Summarizer Chrome Extension
+# YouTube Summary Chrome Extension
 
-A Chrome extension that uses AI to generate concise summaries of YouTube video transcripts.
+A Chrome extension that uses AI to generate concise summaries of YouTube videos using their transcripts. Get the key points of any video without watching the entire content.
 
 ## Features
 
-- Automatically detects when you're on a YouTube video page
-- Extracts the transcript from the video
-- Generates an AI-powered summary of the video content
-- Presents the summary in a clean, readable modal
+- Automatically summarizes YouTube videos
+- Uses AI to extract key information from video transcripts
+- Timestamp support for easy navigation to specific parts of the video
+- Interactive chat functionality to ask questions about the video content
+- Clean, non-intrusive UI that integrates with YouTube's interface
+
+## Installation
+
+1. Clone this repository
+2. Open Chrome and go to `chrome://extensions/`
+3. Enable "Developer mode"
+4. Click "Load unpacked" and select the directory of this repository
+5. The extension will now be active when you browse YouTube videos
+
+## Usage
+
+1. Navigate to any YouTube video
+2. Look for the "Summarize" button near the video controls
+3. Click the button to generate a summary
+4. View the AI-generated summary and navigate through key points
 
 ## Development Setup
 
